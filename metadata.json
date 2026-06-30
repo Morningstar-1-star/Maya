@@ -1,0 +1,6 @@
+{
+  "name": "Browser",
+  "description": "A beautiful, responsive web browser featuring a floating address bar, built-in ad blocker panel, and multi-tab switcher with page previews.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
