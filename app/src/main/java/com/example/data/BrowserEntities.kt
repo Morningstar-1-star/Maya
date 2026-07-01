@@ -50,3 +50,14 @@ data class CapturedMedia(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "user_scripts")
+data class UserScript(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val description: String,
+    val matchUrl: String, // e.g. "*" or specific domains
+    val code: String, // Javascript code
+    val isEnabled: Boolean = true,
+    val timestamp: Long = System.currentTimeMillis()
+)
+

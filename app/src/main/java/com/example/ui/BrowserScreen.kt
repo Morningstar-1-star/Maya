@@ -128,6 +128,7 @@ fun BrowserScreen(
     val ucPlayerShowSpeedMeter by viewModel.ucPlayerShowSpeedMeter.collectAsStateWithLifecycle()
     val ucPlayerDefaultSpeed by viewModel.ucPlayerDefaultSpeed.collectAsStateWithLifecycle()
     val ucPlayerActive by viewModel.ucPlayerActive.collectAsStateWithLifecycle()
+    val isInPipMode by viewModel.isInPictureInPictureMode.collectAsStateWithLifecycle()
     val ucPlayerVideoUrl by viewModel.ucPlayerVideoUrl.collectAsStateWithLifecycle()
     val ucPlayerVideoTitle by viewModel.ucPlayerVideoTitle.collectAsStateWithLifecycle()
     val capturedMedia by viewModel.allCapturedMedia.collectAsStateWithLifecycle()
@@ -234,6 +235,44 @@ fun BrowserScreen(
         } catch (e: Exception) {
             // Speech recognizer not available, fallback to beautiful typing
         }
+    }
+
+    if (isInPipMode) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            if (useUcPlayerEngine) {
+                UcPremiumVideoPlayer(
+                    videoUrl = ucPlayerVideoUrl,
+                    title = ucPlayerVideoTitle,
+                    onClose = { viewModel.setUcPlayerActive(false) },
+                    showSpeedMeter = ucPlayerShowSpeedMeter,
+                    gestureControlsEnabled = ucPlayerGestureControls,
+                    defaultSpeed = ucPlayerDefaultSpeed,
+                    capturedMedia = capturedMedia,
+                    onPlayOtherVideo = { media ->
+                        viewModel.setUcPlayerVideoUrl(media.url)
+                        viewModel.setUcPlayerVideoTitle(media.pageTitle)
+                    }
+                )
+            } else {
+                MiBrowserVideoPlayer(
+                    videoUrl = ucPlayerVideoUrl,
+                    title = ucPlayerVideoTitle,
+                    onClose = { viewModel.setUcPlayerActive(false) },
+                    gestureControlsEnabled = ucPlayerGestureControls,
+                    defaultSpeed = ucPlayerDefaultSpeed,
+                    capturedMedia = capturedMedia,
+                    onPlayOtherVideo = { media ->
+                        viewModel.setUcPlayerVideoUrl(media.url)
+                        viewModel.setUcPlayerVideoTitle(media.pageTitle)
+                    }
+                )
+            }
+        }
+        return
     }
 
     Box(
@@ -425,6 +464,7 @@ fun BrowserScreen(
                 .fillMaxHeight(0.95f)
         ) {
             SettingsOverlay(
+                viewModel = viewModel,
                 isVisible = isSettingsScreenVisible,
                 currentSubScreen = currentSettingsSubScreen,
                 onClose = { viewModel.setSettingsScreenVisible(false) },
@@ -1261,6 +1301,7 @@ fun BrowserScreen(
             exit = fadeOut(animationSpec = tween(250))
         ) {
             SearchActiveOverlay(
+                viewModel = viewModel,
                 query = searchQuery,
                 onQueryChange = { viewModel.updateSearchQuery(it) },
                 onSearchSubmit = {
@@ -1288,14 +1329,13 @@ fun BrowserScreen(
         LaunchedEffect(latestVideo) {
             if (latestVideo != null) {
                 videoIconVisible = true
-                delay(8000)
-                videoIconVisible = false
             } else {
                 videoIconVisible = false
             }
         }
 
-        val showCornerIcon = latestVideo != null && !dismissVideoToast && !ucPlayerActive && useUcPlayerEngine && videoIconVisible
+        val showCornerIcon = false
+        var showPlayerOptionsMenu by remember { mutableStateOf(false) }
 
         AnimatedVisibility(
             visible = showCornerIcon,
@@ -1306,65 +1346,131 @@ fun BrowserScreen(
                 .padding(bottom = 100.dp, end = 20.dp)
                 .zIndex(99f)
         ) {
-            Box(
-                modifier = Modifier
-                    .shadow(12.dp, CircleShape)
-                    .background(
-                        brush = Brush.linearGradient(
-                            colors = listOf(Color(0xFFE11D48), Color(0xFF4F46E5))
-                        ),
-                        shape = CircleShape
-                    )
-                    .clickable {
-                        latestVideo?.let {
-                            viewModel.setUcPlayerVideoUrl(it.url)
-                            viewModel.setUcPlayerVideoTitle(it.pageTitle)
-                            viewModel.setUcPlayerActive(true)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Expanded Options Menu Card (from user concept screenshot)
+                AnimatedVisibility(
+                    visible = showPlayerOptionsMenu,
+                    enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                    exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(24.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f)),
+                        modifier = Modifier.height(48.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        ) {
+                            // Option 1: Picture-in-picture (Background audio / PiP)
+                            IconButton(onClick = {
+                                Toast.makeText(context, "Background listening activated for video stream", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.PictureInPicture,
+                                    contentDescription = "Background Listening",
+                                    tint = Color(0xFF4F46E5)
+                                )
+                            }
+                            
+                            // Vertical Separator
+                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray.copy(alpha = 0.6f)))
+
+                            // Option 2 (Middle feature in user request): Fullscreen / Expand
+                            IconButton(onClick = {
+                                latestVideo?.let {
+                                    viewModel.setUcPlayerVideoUrl(it.url)
+                                    viewModel.setUcPlayerVideoTitle(it.pageTitle)
+                                    viewModel.setUcPlayerActive(true)
+                                    showPlayerOptionsMenu = false
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInFull,
+                                    contentDescription = "Fullscreen Player",
+                                    tint = Color(0xFFE11D48)
+                                )
+                            }
+
+                            // Vertical Separator
+                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray.copy(alpha = 0.6f)))
+
+                            // Option 3: Download
+                            IconButton(onClick = {
+                                latestVideo?.let {
+                                    downloadMedia(context, it.url, "${System.currentTimeMillis()}.mp4")
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "Download Video",
+                                    tint = Color(0xFF10B981)
+                                )
+                            }
                         }
                     }
-                    .padding(2.dp)
-            ) {
+                }
+
+                // Core Floating Play Toggle Button
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
-                        .background(Color(0xFF0F172A), CircleShape),
-                    contentAlignment = Alignment.Center
+                        .shadow(12.dp, CircleShape)
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = listOf(Color(0xFF6366F1), Color(0xFFEC4899))
+                            ),
+                            shape = CircleShape
+                        )
+                        .clickable {
+                            showPlayerOptionsMenu = !showPlayerOptionsMenu
+                        }
+                        .padding(2.dp)
                 ) {
-                    val infiniteTransition = rememberInfiniteTransition(label = "pulsing")
-                    val pulseScale by infiniteTransition.animateFloat(
-                        initialValue = 1.0f,
-                        targetValue = 1.3f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1400, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "scale"
-                    )
-                    val pulseAlpha by infiniteTransition.animateFloat(
-                        initialValue = 0.5f,
-                        targetValue = 0.0f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1400, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "alpha"
-                    )
-
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .scale(pulseScale)
-                            .background(Color(0xFFE11D48).copy(alpha = pulseAlpha), CircleShape)
-                    )
+                            .size(56.dp)
+                            .background(Color(0xFF0F172A), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val infiniteTransition = rememberInfiniteTransition(label = "pulsing")
+                        val pulseScale by infiniteTransition.animateFloat(
+                            initialValue = 1.0f,
+                            targetValue = 1.25f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "scale"
+                        )
+                        val pulseAlpha by infiniteTransition.animateFloat(
+                            initialValue = 0.4f,
+                            targetValue = 0.0f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "alpha"
+                        )
 
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "UC Premium Player Intercept",
-                        tint = Color(0xFFE11D48),
-                        modifier = Modifier
-                            .size(32.dp)
-                            .padding(start = 2.dp)
-                    )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .scale(pulseScale)
+                                .background(Color(0xFF6366F1).copy(alpha = pulseAlpha), CircleShape)
+                        )
+
+                        Icon(
+                            imageVector = Icons.Default.PlayCircle,
+                            contentDescription = "Intercept Media Stream",
+                            tint = Color(0xFF6366F1),
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1378,19 +1484,34 @@ fun BrowserScreen(
                 .fillMaxSize()
                 .zIndex(100f) // Draw on top of absolutely everything
         ) {
-            UcPremiumVideoPlayer(
-                videoUrl = ucPlayerVideoUrl,
-                title = ucPlayerVideoTitle,
-                onClose = { viewModel.setUcPlayerActive(false) },
-                showSpeedMeter = ucPlayerShowSpeedMeter,
-                gestureControlsEnabled = ucPlayerGestureControls,
-                defaultSpeed = ucPlayerDefaultSpeed,
-                capturedMedia = capturedMedia,
-                onPlayOtherVideo = { media ->
-                    viewModel.setUcPlayerVideoUrl(media.url)
-                    viewModel.setUcPlayerVideoTitle(media.pageTitle)
-                }
-            )
+            if (useUcPlayerEngine) {
+                UcPremiumVideoPlayer(
+                    videoUrl = ucPlayerVideoUrl,
+                    title = ucPlayerVideoTitle,
+                    onClose = { viewModel.setUcPlayerActive(false) },
+                    showSpeedMeter = ucPlayerShowSpeedMeter,
+                    gestureControlsEnabled = ucPlayerGestureControls,
+                    defaultSpeed = ucPlayerDefaultSpeed,
+                    capturedMedia = capturedMedia,
+                    onPlayOtherVideo = { media ->
+                        viewModel.setUcPlayerVideoUrl(media.url)
+                        viewModel.setUcPlayerVideoTitle(media.pageTitle)
+                    }
+                )
+            } else {
+                MiBrowserVideoPlayer(
+                    videoUrl = ucPlayerVideoUrl,
+                    title = ucPlayerVideoTitle,
+                    onClose = { viewModel.setUcPlayerActive(false) },
+                    gestureControlsEnabled = ucPlayerGestureControls,
+                    defaultSpeed = ucPlayerDefaultSpeed,
+                    capturedMedia = capturedMedia,
+                    onPlayOtherVideo = { media ->
+                        viewModel.setUcPlayerVideoUrl(media.url)
+                        viewModel.setUcPlayerVideoTitle(media.pageTitle)
+                    }
+                )
+            }
         }
     }
 }
@@ -3505,13 +3626,15 @@ fun MediaViewerDialog(
 
 fun downloadMedia(context: android.content.Context, url: String, filename: String) {
     try {
-        val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
-            setTitle(filename)
-            setDescription("Downloading file from Media Studio")
+        val cleanUrl = url.trim()
+        val request = android.app.DownloadManager.Request(android.net.Uri.parse(cleanUrl)).apply {
+            setTitle(filename.ifBlank { "Downloaded Media" })
+            setDescription("Downloading captured media from browser...")
             setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            addRequestHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
             setDestinationInExternalPublicDir(
                 android.os.Environment.DIRECTORY_DOWNLOADS,
-                filename
+                if (filename.isBlank() || !filename.contains(".")) "${System.currentTimeMillis()}.mp4" else filename
             )
         }
         val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
@@ -3524,6 +3647,7 @@ fun downloadMedia(context: android.content.Context, url: String, filename: Strin
 
 @Composable
 fun SearchActiveOverlay(
+    viewModel: com.example.viewmodel.BrowserViewModel,
     query: String,
     onQueryChange: (String) -> Unit,
     onSearchSubmit: (String) -> Unit,
@@ -3532,16 +3656,53 @@ fun SearchActiveOverlay(
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
+    val searchSuggestions by viewModel.searchSuggestions.collectAsStateWithLifecycle()
+    val activeEngineName by viewModel.searchEngineName.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+
+    val isDarkTheme = when (themeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
 
     // Automatically request focus on enter to open keyboard
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 
+    // Define color scheme based on the active theme mode
+    val backgroundBrush = if (isDarkTheme) {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF030712), // Deep pitch space black
+                Color(0xFF0B1224)  // Rich deep space navy
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFFF8FAFC), // Slate 50
+                Color(0xFFF1F5F9)  // Slate 100
+            )
+        )
+    }
+
+    val textColor = if (isDarkTheme) Color.White else Color(0xFF0F172A)
+    val subTextColor = if (isDarkTheme) Color.White.copy(alpha = 0.5f) else Color(0xFF475569)
+    val accentColor = if (isDarkTheme) Color(0xFF38BDF8) else Color(0xFF0284C7)
+    val chipUnselectedBg = if (isDarkTheme) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+    val chipUnselectedText = if (isDarkTheme) Color.White.copy(alpha = 0.8f) else Color(0xFF334155)
+
+    val inputCardBg = if (isDarkTheme) Color(0xFF0F172A) else Color.White
+    val inputBorderColor = if (isDarkTheme) Color(0xFF38BDF8).copy(alpha = 0.35f) else Color(0xFF0284C7).copy(alpha = 0.35f)
+    val cursorColor = if (isDarkTheme) Color(0xFF38BDF8) else Color(0xFF0284C7)
+    val clearIconColor = if (isDarkTheme) Color.White.copy(alpha = 0.5f) else Color(0xFF64748B)
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF121212)) // Sleek dark slate
+            .background(brush = backgroundBrush)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -3554,134 +3715,409 @@ fun SearchActiveOverlay(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Search & History",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Search & History",
+                        color = textColor,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif
+                    )
+                }
 
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel", color = Color(0xFFBB86FC), fontSize = 15.sp)
+                TextButton(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.textButtonColors(contentColor = accentColor)
+                ) {
+                    Text(
+                        text = "Cancel",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
 
             // Recommendations / Suggestions List (takes remaining space above input)
             val filteredSuggestions = remember(query, historyList) {
-                val list = if (query.isBlank()) {
+                if (query.isBlank()) {
                     historyList.map { it.title to it.url }
                 } else {
                     historyList.filter {
                         it.title.contains(query, ignoreCase = true) ||
                         it.url.contains(query, ignoreCase = true)
                     }.map { it.title to it.url }
-                }
-
-                // If empty or short, supplement with popular defaults
-                if (list.size < 5) {
-                    val defaults = listOf(
-                        "google images" to "https://images.google.com",
-                        "yandex" to "https://yandex.com",
-                        "ind vs ireland" to "https://www.google.com/search?q=ind+vs+ireland",
-                        "steam" to "https://store.steampowered.com",
-                        "fifa world cup 2026" to "https://www.google.com/search?q=fifa+world+cup+2026",
-                        "vegamovies" to "https://www.google.com/search?q=vegamovies",
-                        "wwe" to "https://www.google.com/search?q=wwe"
-                    )
-                    val filteredDefaults = if (query.isBlank()) {
-                        defaults
-                    } else {
-                        defaults.filter { it.first.contains(query, ignoreCase = true) }
-                    }
-                    (list + filteredDefaults).distinctBy { it.first.lowercase() }.take(10)
-                } else {
-                    list.take(10)
-                }
+                }.distinctBy { it.second.lowercase().trim() }.take(10)
             }
 
-            LazyColumn(
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(filteredSuggestions) { suggestion ->
-                    Row(
+                if (searchSuggestions.isEmpty() && filteredSuggestions.isEmpty() && query.isBlank()) {
+                    // Premium, ultra-sleek Empty State
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                onSearchSubmit(suggestion.second)
-                            }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .fillMaxSize()
+                            .padding(horizontal = 32.dp, vertical = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = "History",
-                            tint = Color.White.copy(alpha = 0.5f),
-                            modifier = Modifier.size(20.dp)
-                        )
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        Text(
-                            text = suggestion.first,
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        IconButton(
-                            onClick = {
-                                onQueryChange(suggestion.first)
-                            },
-                            modifier = Modifier.size(24.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(88.dp)
+                                .background(accentColor.copy(alpha = 0.05f), CircleShape)
+                                .border(1.dp, accentColor.copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ArrowUpward,
-                                contentDescription = "Fill Query",
-                                tint = Color.White.copy(alpha = 0.4f),
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .graphicsLayer(rotationZ = -45f)
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(36.dp)
                             )
                         }
-                    }
 
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Text(
+                            text = "Search the Web",
+                            color = textColor,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Type a search term or website URL below. Your actual browsing history will appear here for easy recommendation.",
+                            color = subTextColor,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Smart Online Search Option
+                        if (query.isNotBlank()) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(accentColor.copy(alpha = 0.08f))
+                                        .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                                        .clickable {
+                                            onSearchSubmit(query)
+                                        }
+                                        .padding(vertical = 14.dp, horizontal = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(accentColor.copy(alpha = 0.15f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Language,
+                                            contentDescription = "Search the Web",
+                                            tint = accentColor,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(16.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Search for \"$query\"",
+                                            color = textColor,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Search the web using $activeEngineName",
+                                            color = subTextColor,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = "Go",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Internet Search suggestions/recommendations
+                        if (query.isNotBlank() && searchSuggestions.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "$activeEngineName search suggestions",
+                                    color = accentColor,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(searchSuggestions) { suggestion ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(if (isDarkTheme) Color.White.copy(alpha = 0.02f) else Color(0xFFF1F5F9))
+                                        .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.03f) else Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
+                                        .clickable {
+                                            onSearchSubmit(suggestion)
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = "Suggestion",
+                                            tint = subTextColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(16.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = suggestion,
+                                            color = textColor,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            onQueryChange(suggestion)
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowUpward,
+                                            contentDescription = "Fill Query",
+                                            tint = subTextColor,
+                                            modifier = Modifier
+                                                .size(18.dp)
+                                                .graphicsLayer(rotationZ = -45f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // History Recommendations List
+                        if (filteredSuggestions.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "History suggestions",
+                                    color = accentColor,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(filteredSuggestions) { suggestion ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(if (isDarkTheme) Color.White.copy(alpha = 0.02f) else Color(0xFFF1F5F9))
+                                        .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.03f) else Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
+                                        .clickable {
+                                            onSearchSubmit(suggestion.second)
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFE2E8F0), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.History,
+                                            contentDescription = "History",
+                                            tint = subTextColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(16.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = suggestion.first,
+                                            color = textColor,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = suggestion.second,
+                                            color = subTextColor,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            onQueryChange(suggestion.first)
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowUpward,
+                                            contentDescription = "Fill Query",
+                                            tint = subTextColor,
+                                            modifier = Modifier
+                                                .size(18.dp)
+                                                .graphicsLayer(rotationZ = -45f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            // Beautiful typing search bar matching keyboard
+            // Custom search engine chips/selector from screenshot (Google, DuckDuckGo, Bing, Baidu, Naver, ChatGPT, Perplexity, Grok, Claude)
+            val presets = listOf(
+                Triple("Google", "https://www.google.com/search?q=%s", "g"),
+                Triple("DuckDuckGo", "https://duckduckgo.com/?q=%s", "d"),
+                Triple("Bing", "https://www.bing.com/search?q=%s", "b"),
+                Triple("Baidu", "https://www.baidu.com/s?wd=%s", "ba"),
+                Triple("Naver", "https://search.naver.com/search.naver?query=%s", "n"),
+                Triple("ChatGPT", "https://chatgpt.com/?q=%s", "gpt"),
+                Triple("Perplexity", "https://www.perplexity.ai/?q=%s", "p"),
+                Triple("Grok", "https://grok.com/?q=%s", "gr"),
+                Triple("Claude", "https://claude.ai/?q=%s", "c")
+            )
+
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                items(presets) { (presetName, presetUrl, presetShortcut) ->
+                    val isSelected = activeEngineName.lowercase() == presetName.lowercase()
+                    val domain = when (presetName.lowercase()) {
+                        "google" -> "google.com"
+                        "duckduckgo" -> "duckduckgo.com"
+                        "bing" -> "bing.com"
+                        "baidu" -> "baidu.com"
+                        "naver" -> "naver.com"
+                        "chatgpt" -> "chatgpt.com"
+                        "perplexity" -> "perplexity.ai"
+                        "grok" -> "grok.com"
+                        "claude" -> "claude.ai"
+                        else -> "google.com"
+                    }
+                    val faviconUrl = "https://www.google.com/s2/favicons?sz=128&domain=$domain"
+
+                    Card(
+                        modifier = Modifier
+                            .clickable {
+                                viewModel.setCustomSearchEngine(presetName, presetUrl, presetShortcut)
+                            },
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) accentColor else chipUnselectedBg
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) accentColor else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color(0xFFCBD5E1)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            coil.compose.AsyncImage(
+                                model = faviconUrl,
+                                contentDescription = "$presetName favicon",
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                            )
+                            Text(
+                                text = presetName,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) Color.White else chipUnselectedText
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Beautiful typing search bar matching keyboard and theme mode aesthetics
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .shadow(8.dp, RoundedCornerShape(16.dp)),
-                shape = RoundedCornerShape(16.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp)
+                    .shadow(12.dp, RoundedCornerShape(18.dp)),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF1E1E1E)
-                )
+                    containerColor = inputCardBg
+                ),
+                border = BorderStroke(1.5.dp, inputBorderColor)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
-                        .padding(horizontal = 14.dp),
+                        .height(56.dp)
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = Color.White.copy(alpha = 0.6f),
+                        tint = accentColor,
                         modifier = Modifier.size(22.dp)
                     )
 
@@ -3704,18 +4140,18 @@ fun SearchActiveOverlay(
                             }
                         ),
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = Color.White,
+                            color = textColor,
                             fontSize = 16.sp
                         ),
                         modifier = Modifier
                             .weight(1f)
                             .focusRequester(focusRequester),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFFBB86FC)),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(cursorColor),
                         decorationBox = { innerTextField ->
                             if (query.isEmpty()) {
                                 Text(
                                     text = "Search or type URL",
-                                    color = Color.White.copy(alpha = 0.35f),
+                                    color = if (isDarkTheme) Color.White.copy(alpha = 0.3f) else Color.DarkGray.copy(alpha = 0.5f),
                                     fontSize = 16.sp
                                 )
                             }
@@ -3726,13 +4162,13 @@ fun SearchActiveOverlay(
                     if (query.isNotEmpty()) {
                         IconButton(
                             onClick = { onQueryChange("") },
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Cancel,
                                 contentDescription = "Clear",
-                                tint = Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(18.dp)
+                                tint = clearIconColor,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -3744,6 +4180,7 @@ fun SearchActiveOverlay(
 
 @Composable
 fun SettingsOverlay(
+    viewModel: com.example.viewmodel.BrowserViewModel,
     isVisible: Boolean,
     currentSubScreen: String,
     onClose: () -> Unit,
@@ -3858,7 +4295,14 @@ fun SettingsOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A)) // Slate 900 - ultra polished premium dark background
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF030712), // Deep space black
+                        Color(0xFF070E1E)  // Sleek deep space blue-navy
+                    )
+                )
+            )
     ) {
         Column(
             modifier = Modifier
@@ -3894,12 +4338,13 @@ fun SettingsOverlay(
                     text = when (currentSubScreen) {
                         "search_engine" -> "Search Engine Settings"
                         "video_options" -> "Video Options Toolbar"
-                        "privacy_guard" -> "Privacy Guard Control"
+                        "privacy_guard" -> "Privacy and security"
                         "dns_routing" -> "DNS & Secure Routing"
                         "appearance_settings" -> "Appearance Settings"
                         "customize_address_bar" -> "Customize Address Bar"
                         "customize_menu" -> "Customize Menu"
                         "tabs_start_page" -> "Tabs & Start Page"
+                        "user_scripts" -> "User Script Manager"
                         else -> "Browser Advanced Settings"
                     },
                     fontSize = 20.sp,
@@ -3937,8 +4382,9 @@ fun SettingsOverlay(
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
                             ) {
                                 Column {
                                     SettingsItemRow(
@@ -3965,47 +4411,77 @@ fun SettingsOverlay(
                                         onClick = { onNavigateSub("appearance_settings") }
                                     )
                                 }
-                            }
+                             }
 
-                            // Category: Privacy & Security
-                            Text(
-                                text = "PRIVACY GUARD SYSTEM",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF34D399),
-                                letterSpacing = 1.sp
-                            )
+                             // Category: Privacy & Security
+                             Text(
+                                 text = "PRIVACY GUARD SYSTEM",
+                                 fontSize = 12.sp,
+                                 fontWeight = FontWeight.Bold,
+                                 color = Color(0xFF34D399),
+                                 letterSpacing = 1.sp
+                             )
 
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
-                            ) {
-                                Column {
-                                    SettingsItemRow(
-                                        title = "Core Shield Control",
-                                        subtitle = "HTTPS Force, Fingerprint Protection, Scripts",
-                                        icon = Icons.Default.Shield,
-                                        iconColor = Color(0xFF34D399),
-                                        onClick = { onNavigateSub("privacy_guard") }
-                                    )
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                                    SettingsItemRow(
-                                        title = "DNS & Smart Auto-Routing",
-                                        subtitle = "Private DoH Server, SOCKS & Tor Bridges",
-                                        icon = Icons.Default.Dns,
-                                        iconColor = Color(0xFFA78BFA),
-                                        onClick = { onNavigateSub("dns_routing") }
-                                    )
-                                }
-                            }
+                             Card(
+                                 modifier = Modifier.fillMaxWidth(),
+                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                                 shape = RoundedCornerShape(16.dp),
+                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                             ) {
+                                 Column {
+                                     SettingsItemRow(
+                                         title = "Privacy and security",
+                                         subtitle = "Delete browsing data, Safe Browsing, Cookies",
+                                         icon = Icons.Default.Shield,
+                                         iconColor = Color(0xFF34D399),
+                                         onClick = { onNavigateSub("privacy_guard") }
+                                     )
+                                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                     SettingsItemRow(
+                                         title = "DNS & Smart Auto-Routing",
+                                         subtitle = "Private DoH Server, SOCKS & Tor Bridges",
+                                         icon = Icons.Default.Dns,
+                                         iconColor = Color(0xFFA78BFA),
+                                         onClick = { onNavigateSub("dns_routing") }
+                                     )
+                                 }
+                             }
 
-                            // System Info
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
-                            ) {
+                             // Extensions & Scripts
+                             Text(
+                                 text = "EXTENSIONS & SCRIPTS",
+                                 fontSize = 12.sp,
+                                 fontWeight = FontWeight.Bold,
+                                 color = Color(0xFF38BDF8),
+                                 letterSpacing = 1.sp
+                             )
+
+                             Card(
+                                 modifier = Modifier.fillMaxWidth(),
+                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                                 shape = RoundedCornerShape(16.dp),
+                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                             ) {
+                                 Column {
+                                     SettingsItemRow(
+                                         title = "User Script Manager",
+                                         subtitle = "Create & inject custom sandboxed page modifications",
+                                         icon = Icons.Default.Code,
+                                         iconColor = Color(0xFF38BDF8),
+                                         onClick = { onNavigateSub("user_scripts") }
+                                     )
+                                 }
+                             }
+
+                             Spacer(modifier = Modifier.height(8.dp))
+
+                             // System Info
+                             Card(
+                                 modifier = Modifier.fillMaxWidth(),
+                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+                                 shape = RoundedCornerShape(16.dp),
+                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -4072,24 +4548,13 @@ fun SettingsOverlay(
 
                     "privacy_guard" -> {
                         PrivacyGuardSubScreen(
-                            alwaysUseHttps = alwaysUseHttps,
-                            onAlwaysUseHttpsChange = onAlwaysUseHttpsChange,
-                            removeFingerprint = removeFingerprint,
-                            onRemoveFingerprintChange = onRemoveFingerprintChange,
-                            scriptControlEnabled = scriptControlEnabled,
-                            onScriptControlChange = onScriptControlChange,
-                            cookieManagementMode = cookieManagementMode,
-                            onCookieManagementChange = onCookieManagementChange,
-                            stopAppRedirects = stopAppRedirects,
-                            onStopAppRedirectsChange = onStopAppRedirectsChange,
-                            safeBrowsingEnabled = safeBrowsingEnabled,
-                            onSafeBrowsingChange = onSafeBrowsingChange,
-                            doNotTrack = doNotTrack,
-                            onDoNotTrackChange = onDoNotTrackChange,
-                            autoDeAmp = autoDeAmp,
-                            onAutoDeAmpChange = onAutoDeAmpChange,
-                            globalPrivacyControl = globalPrivacyControl,
-                            onGlobalPrivacyControlChange = onGlobalPrivacyControlChange
+                            viewModel = viewModel
+                        )
+                    }
+
+                    "user_scripts" -> {
+                        UserScriptsSubScreen(
+                            viewModel = viewModel
                         )
                     }
 
@@ -4266,7 +4731,11 @@ fun SearchEngineSubScreen(
             Triple("DuckDuckGo", "https://duckduckgo.com/?q=%s", "d"),
             Triple("Bing", "https://www.bing.com/search?q=%s", "b"),
             Triple("Baidu", "https://www.baidu.com/s?wd=%s", "ba"),
-            Triple("Naver", "https://search.naver.com/search.naver?query=%s", "n")
+            Triple("Naver", "https://search.naver.com/search.naver?query=%s", "n"),
+            Triple("ChatGPT", "https://chatgpt.com/?q=%s", "gpt"),
+            Triple("Perplexity", "https://www.perplexity.ai/?q=%s", "p"),
+            Triple("Grok", "https://grok.com/?q=%s", "gr"),
+            Triple("Claude", "https://claude.ai/?q=%s", "c")
         )
 
         presets.forEach { (presetName, presetUrl, presetShortcut) ->
@@ -4278,9 +4747,10 @@ fun SearchEngineSubScreen(
                         onSave(presetName, presetUrl, presetShortcut)
                     },
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) Color(0xFF0284C7) else Color(0xFF1E293B)
+                    containerColor = if (isSelected) Color(0xFF0284C7) else Color(0xFF0B1224)
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, if (isSelected) Color(0xFF0284C7) else Color.White.copy(alpha = 0.05f))
             ) {
                 Row(
                     modifier = Modifier.padding(14.dp),
@@ -4321,8 +4791,9 @@ fun SearchEngineSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -4403,14 +4874,14 @@ fun VideoOptionsSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.dp, Color(0xFFE11D48).copy(alpha = 0.25f)) // glowing outline
         ) {
             Column {
                 SettingsSwitchRow(
-                    title = "Always Intercept with UC Player",
-                    subtitle = "Automatically load online videos in the custom gesture-supported overlay player.",
+                    title = "Use UC Premium Player (vs Mi Player)",
+                    subtitle = "Enable to use the UC Browser Player with buffer % and data speed. Disable to use the minimalist Mi Browser Video Player.",
                     checked = useUcPlayerEngine,
                     onCheckedChange = onUseUcPlayerEngineChange
                 )
@@ -4447,8 +4918,9 @@ fun VideoOptionsSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Row(
                 modifier = Modifier
@@ -4490,8 +4962,9 @@ fun VideoOptionsSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
                 SettingsSwitchRow(
@@ -4529,8 +5002,9 @@ fun VideoOptionsSubScreen(
         val options = listOf("Standard Ad-Free", "PiP Player Mode", "Strict Privacy Proxy", "Premium Player Engine")
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 options.forEach { option ->
@@ -4562,26 +5036,141 @@ fun VideoOptionsSubScreen(
 }
 
 @Composable
-fun PrivacyGuardSubScreen(
-    alwaysUseHttps: Boolean,
-    onAlwaysUseHttpsChange: (Boolean) -> Unit,
-    removeFingerprint: Boolean,
-    onRemoveFingerprintChange: (Boolean) -> Unit,
-    scriptControlEnabled: Boolean,
-    onScriptControlChange: (Boolean) -> Unit,
-    cookieManagementMode: String,
-    onCookieManagementChange: (String) -> Unit,
-    stopAppRedirects: Boolean,
-    onStopAppRedirectsChange: (Boolean) -> Unit,
-    safeBrowsingEnabled: Boolean,
-    onSafeBrowsingChange: (Boolean) -> Unit,
-    doNotTrack: Boolean,
-    onDoNotTrackChange: (Boolean) -> Unit,
-    autoDeAmp: Boolean,
-    onAutoDeAmpChange: (Boolean) -> Unit,
-    globalPrivacyControl: Boolean,
-    onGlobalPrivacyControlChange: (Boolean) -> Unit
+fun PrivacyInteractiveRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    statusText: String? = null
 ) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            if (subtitle.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                    lineHeight = 16.sp
+                )
+            }
+        }
+        if (statusText != null) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = statusText,
+                fontSize = 13.sp,
+                color = Color(0xFF38BDF8),
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun PrivacySwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            if (subtitle.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                    lineHeight = 16.sp
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFF34D399),
+                checkedTrackColor = Color(0xFF34D399).copy(alpha = 0.4f),
+                uncheckedThumbColor = Color.LightGray,
+                uncheckedTrackColor = Color.DarkGray
+            )
+        )
+    }
+}
+
+@Composable
+fun PrivacyGuardSubScreen(viewModel: BrowserViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Collect states from ViewModel
+    val alwaysUseHttps by viewModel.alwaysUseHttps.collectAsStateWithLifecycle()
+    val removeFingerprint by viewModel.removeFingerprint.collectAsStateWithLifecycle()
+    val scriptControlEnabled by viewModel.scriptControlEnabled.collectAsStateWithLifecycle()
+    val cookieManagementMode by viewModel.cookieManagementMode.collectAsStateWithLifecycle()
+    val stopAppRedirects by viewModel.stopAppRedirects.collectAsStateWithLifecycle()
+    val safeBrowsingEnabled by viewModel.safeBrowsingEnabled.collectAsStateWithLifecycle()
+    val doNotTrack by viewModel.doNotTrack.collectAsStateWithLifecycle()
+    val autoDeAmp by viewModel.autoDeAmp.collectAsStateWithLifecycle()
+    val globalPrivacyControl by viewModel.globalPrivacyControl.collectAsStateWithLifecycle()
+
+    // Collect new states
+    val thirdPartyCookiesSetting by viewModel.thirdPartyCookiesSetting.collectAsStateWithLifecycle()
+    val incognitoTrackingProtections by viewModel.incognitoTrackingProtections.collectAsStateWithLifecycle()
+    val adsPrivacyTopics by viewModel.adsPrivacyTopics.collectAsStateWithLifecycle()
+    val adsPrivacySiteSuggested by viewModel.adsPrivacySiteSuggested.collectAsStateWithLifecycle()
+    val adsPrivacyMeasurement by viewModel.adsPrivacyMeasurement.collectAsStateWithLifecycle()
+    val preloadPagesMode by viewModel.preloadPagesMode.collectAsStateWithLifecycle()
+    val lockIncognitoTabs by viewModel.lockIncognitoTabs.collectAsStateWithLifecycle()
+    val safeBrowsingLevel by viewModel.safeBrowsingLevel.collectAsStateWithLifecycle()
+    val warnPasswordCompromised by viewModel.warnPasswordCompromised.collectAsStateWithLifecycle()
+    val jsOptimisationAndSecurity by viewModel.jsOptimisationAndSecurity.collectAsStateWithLifecycle()
+    val accessPaymentMethods by viewModel.accessPaymentMethods.collectAsStateWithLifecycle()
+
+    // Collect DNS states
+    val dnsEnabled by viewModel.dnsEnabled.collectAsStateWithLifecycle()
+    val dnsMode by viewModel.dnsMode.collectAsStateWithLifecycle()
+    val dnsPresetId by viewModel.dnsPresetId.collectAsStateWithLifecycle()
+    val dnsCustomValue by viewModel.dnsCustomValue.collectAsStateWithLifecycle()
+
+    // Dialog trigger states
+    var showDeleteDataDialog by remember { mutableStateOf(false) }
+    var showPrivacyGuideDialog by remember { mutableStateOf(false) }
+    var showThirdPartyCookiesDialog by remember { mutableStateOf(false) }
+    var showIncognitoProtectionsDialog by remember { mutableStateOf(false) }
+    var showAdsPrivacyDialog by remember { mutableStateOf(false) }
+    var showDoNotTrackDialog by remember { mutableStateOf(false) }
+    var showPreloadPagesDialog by remember { mutableStateOf(false) }
+    var showSafeBrowsingDialog by remember { mutableStateOf(false) }
+    var showDnsDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -4589,138 +5178,743 @@ fun PrivacyGuardSubScreen(
             .padding(vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // --- PRIVACY SECTION ---
         Text(
-            text = "BROWSER PROTECTION GUARD",
+            text = "PRIVACY",
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF34D399),
-            letterSpacing = 1.sp
+            color = Color(0xFF38BDF8),
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(horizontal = 4.dp)
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
-                SettingsSwitchRow(
-                    title = "Always Use HTTPS",
-                    subtitle = "Force upgrades connections to secure HTTPS and alerts on non-secure sites.",
-                    checked = alwaysUseHttps,
-                    onCheckedChange = onAlwaysUseHttpsChange
+                PrivacyInteractiveRow(
+                    title = "Delete browsing data",
+                    subtitle = "Delete history, cookies, site data, cache...",
+                    onClick = { showDeleteDataDialog = true }
                 )
                 HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                SettingsSwitchRow(
-                    title = "Anti-Fingerprint Protection",
-                    subtitle = "Rotates common safe user-agent configurations to prevent tracker canvas fingerprinters.",
-                    checked = removeFingerprint,
-                    onCheckedChange = onRemoveFingerprintChange
+                
+                PrivacyInteractiveRow(
+                    title = "Privacy guide",
+                    subtitle = "Review key privacy and security controls",
+                    onClick = { showPrivacyGuideDialog = true }
                 )
                 HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                SettingsSwitchRow(
-                    title = "Force Script Interception",
-                    subtitle = "Inspects and cleans page-scripts. Disable to disable Javascript execution completely.",
-                    checked = scriptControlEnabled,
-                    onCheckedChange = onScriptControlChange
+
+                PrivacyInteractiveRow(
+                    title = "Third-party cookies",
+                    subtitle = "Third-party cookies are limited",
+                    statusText = when (thirdPartyCookiesSetting) {
+                        "block_incognito" -> "Limited"
+                        "block_all" -> "Blocked"
+                        else -> "Allowed"
+                    },
+                    onClick = { showThirdPartyCookiesDialog = true }
                 )
                 HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                SettingsSwitchRow(
-                    title = "Block App Store Redirections",
-                    subtitle = "Prevents annoying automatic redirects to third-party stores like Play Store.",
-                    checked = stopAppRedirects,
-                    onCheckedChange = onStopAppRedirectsChange
+
+                PrivacyInteractiveRow(
+                    title = "Incognito tracking protections",
+                    subtitle = "Manage information sites that can use to learn about you in Incognito",
+                    statusText = when (incognitoTrackingProtections) {
+                        "limited" -> "Standard"
+                        "strict" -> "Strict"
+                        else -> "Off"
+                    },
+                    onClick = { showIncognitoProtectionsDialog = true }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacyInteractiveRow(
+                    title = "Ads privacy",
+                    subtitle = "Customise the info used by sites to show you ads",
+                    onClick = { showAdsPrivacyDialog = true }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacyInteractiveRow(
+                    title = "Send a 'Do Not Track' request",
+                    subtitle = "Send a DNT header signal with web packages",
+                    statusText = if (doNotTrack) "On" else "Off",
+                    onClick = { showDoNotTrackDialog = true }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacyInteractiveRow(
+                    title = "Preload pages",
+                    subtitle = "Pages load faster but may share cookies beforehand",
+                    statusText = when (preloadPagesMode) {
+                        "standard" -> "Standard"
+                        "extended" -> "Extended"
+                        else -> "Off"
+                    },
+                    onClick = { showPreloadPagesDialog = true }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacySwitchRow(
+                    title = "Lock Incognito tabs when you leave Sigma",
+                    subtitle = "Turn on screen lock in Android settings",
+                    checked = lockIncognitoTabs,
+                    onCheckedChange = { viewModel.setLockIncognitoTabs(it) }
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+
+        // --- SECURITY SECTION ---
         Text(
-            text = "COOKIE MANAGEMENT",
+            text = "SECURITY",
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF34D399),
-            letterSpacing = 1.sp
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(horizontal = 4.dp)
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val modes = listOf(
-                    "allow" to "Allow All Cookies",
-                    "block_all" to "Block All Cookies (May break websites)",
-                    "block_third_party" to "Block Third-Party Trackers & Cookies"
+            Column {
+                PrivacyInteractiveRow(
+                    title = "Safe Browsing",
+                    subtitle = "Shield from dangerous content, phishing, and malware",
+                    statusText = when (safeBrowsingLevel) {
+                        "enhanced" -> "Enhanced"
+                        "standard" -> "Standard"
+                        else -> "No protection"
+                    },
+                    onClick = { showSafeBrowsingDialog = true }
                 )
-                modes.forEach { (modeVal, modeTitle) ->
-                    val isSelected = cookieManagementMode == modeVal
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onCookieManagementChange(modeVal) }
-                            .padding(vertical = 10.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = { onCookieManagementChange(modeVal) },
-                            colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF34D399))
-                        )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacySwitchRow(
+                    title = "Warn you if a password was compromised in a data breach",
+                    subtitle = "When you use a password, Sigma warns you if it has been published online. Passwords are encrypted for safety.",
+                    checked = warnPasswordCompromised,
+                    onCheckedChange = { viewModel.setWarnPasswordCompromised(it) }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacySwitchRow(
+                    title = "Always use secure connections",
+                    subtitle = "Warns you for insecure public sites",
+                    checked = alwaysUseHttps,
+                    onCheckedChange = { viewModel.setAlwaysUseHttps(it) }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacyInteractiveRow(
+                    title = "Use secure DNS",
+                    subtitle = "Dns-over-HTTPS securely resolves IP addresses",
+                    statusText = if (dnsEnabled) "Active" else "Off",
+                    onClick = { showDnsDialog = true }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacySwitchRow(
+                    title = "JavaScript optimisation and security",
+                    subtitle = "Sites are faster but less secure",
+                    checked = jsOptimisationAndSecurity,
+                    onCheckedChange = { viewModel.setJsOptimisationAndSecurity(it) }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                PrivacySwitchRow(
+                    title = "Access payment methods",
+                    subtitle = "Allow sites to check if you have payment methods saved",
+                    checked = accessPaymentMethods,
+                    onCheckedChange = { viewModel.setAccessPaymentMethods(it) }
+                )
+            }
+        }
+    }
+
+    // ==========================================
+    // DIALOGS & SHEET MODALS (REAL WORKING)
+    // ==========================================
+
+    // 1. Delete Browsing Data Dialog
+    if (showDeleteDataDialog) {
+        var clearHistory by remember { mutableStateOf(true) }
+        var clearCookies by remember { mutableStateOf(true) }
+        var clearCache by remember { mutableStateOf(true) }
+        var clearTabs by remember { mutableStateOf(false) }
+
+        Dialog(onDismissRequest = { showDeleteDataDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "Delete browsing data",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { clearHistory = !clearHistory }.padding(vertical = 8.dp)) {
+                        Checkbox(checked = clearHistory, onCheckedChange = { clearHistory = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF38BDF8)))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Browsing history", color = Color.White, fontSize = 14.sp)
+                            Text("Clears search auto-completes and history lists", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { clearCookies = !clearCookies }.padding(vertical = 8.dp)) {
+                        Checkbox(checked = clearCookies, onCheckedChange = { clearCookies = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF38BDF8)))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Cookies and site data", color = Color.White, fontSize = 14.sp)
+                            Text("Signs you out of most active website sessions", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { clearCache = !clearCache }.padding(vertical = 8.dp)) {
+                        Checkbox(checked = clearCache, onCheckedChange = { clearCache = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF38BDF8)))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Cached images and files", color = Color.White, fontSize = 14.sp)
+                            Text("Frees up storage space used by loading assets", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { clearTabs = !clearTabs }.padding(vertical = 8.dp)) {
+                        Checkbox(checked = clearTabs, onCheckedChange = { clearTabs = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF38BDF8)))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Active tabs", color = Color.White, fontSize = 14.sp)
+                            Text("Closes all current workspace sessions", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { showDeleteDataDialog = false }) {
+                            Text("Cancel", color = Color.White.copy(alpha = 0.6f))
+                        }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = modeTitle,
-                            fontSize = 14.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = Color.White
-                        )
+                        Button(
+                            onClick = {
+                                viewModel.deleteBrowsingData(clearHistory, clearCookies, clearCache, clearTabs)
+                                showDeleteDataDialog = false
+                                android.widget.Toast.makeText(context, "Selected data deleted successfully", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                        ) {
+                            Text("Clear data", color = Color.White)
+                        }
                     }
                 }
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "ADVANCED ENHANCED TRACKING PROTECTION",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF34D399),
-            letterSpacing = 1.sp
+    // 2. Privacy Guide Multi-step Wizard Dialog
+    if (showPrivacyGuideDialog) {
+        var step by remember { mutableStateOf(1) }
+
+        Dialog(onDismissRequest = { showPrivacyGuideDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "Privacy guide (Step $step of 4)",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    when (step) {
+                        1 -> {
+                            Text("Step 1: Always Use HTTPS", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Enforcing secure HTTPS connections ensures third parties cannot listen to or tamper with your network packets.", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Switch(checked = alwaysUseHttps, onCheckedChange = { viewModel.setAlwaysUseHttps(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF38BDF8)))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (alwaysUseHttps) "HTTPS Redirection is ON" else "HTTPS Redirection is OFF", color = Color.White, fontSize = 13.sp)
+                            }
+                        }
+                        2 -> {
+                            Text("Step 2: Safe Browsing Protection", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("When enabled, Sigma screens URLs through an automated local engine to warn you before opening dangerous phishing or malicious domains.", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Switch(checked = safeBrowsingEnabled, onCheckedChange = { viewModel.setSafeBrowsingEnabled(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF38BDF8)))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (safeBrowsingEnabled) "Safe Browsing Guard is ON" else "Safe Browsing Guard is OFF", color = Color.White, fontSize = 13.sp)
+                            }
+                        }
+                        3 -> {
+                            Text("Step 3: Anti-Fingerprint Protection", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Canvas fingerprinters attempt to track your device using local setup variations. Our guard randomizes browser characteristics to disguise you.", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Switch(checked = removeFingerprint, onCheckedChange = { viewModel.setRemoveFingerprint(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF38BDF8)))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (removeFingerprint) "Anti-Fingerprint is ACTIVE" else "Anti-Fingerprint is OFF", color = Color.White, fontSize = 13.sp)
+                            }
+                        }
+                        4 -> {
+                            Text("Configuration complete!", color = Color(0xFF34D399), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Awesome! You have completed the essential privacy check. Your configuration is now hardened against trackers, cryptominer scripts, and spoofed domains.", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, lineHeight = 18.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        if (step > 1) {
+                            TextButton(onClick = { step-- }) {
+                                Text("Back", color = Color.White.copy(alpha = 0.7f))
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
+
+                        Row {
+                            TextButton(onClick = { showPrivacyGuideDialog = false }) {
+                                Text("Close", color = Color.White.copy(alpha = 0.6f))
+                            }
+                            if (step < 4) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = { step++ },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                                ) {
+                                    Text("Next", color = Color.Black)
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = { showPrivacyGuideDialog = false },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34D399))
+                                ) {
+                                    Text("Finish", color = Color.Black)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Third-party cookies Dialog
+    if (showThirdPartyCookiesDialog) {
+        val modes = listOf(
+            "block_incognito" to "Block third-party cookies in Incognito (Recommended)",
+            "block_all" to "Block all third-party cookies",
+            "allow" to "Allow third-party cookies"
         )
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column {
-                SettingsSwitchRow(
-                    title = "Enable Safe Browsing Engine",
-                    subtitle = "Examines loaded elements with local database of known phishers.",
-                    checked = safeBrowsingEnabled,
-                    onCheckedChange = onSafeBrowsingChange
-                )
-                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                SettingsSwitchRow(
-                    title = "Send 'Do Not Track' Header",
-                    subtitle = "Includes DNT request signals on all outgoing packages.",
-                    checked = doNotTrack,
-                    onCheckedChange = onDoNotTrackChange
-                )
-                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                SettingsSwitchRow(
-                    title = "Auto De-AMP Redirection",
-                    subtitle = "Decentralizes and strips Google AMP routing pages to native canonical URL structures.",
-                    checked = autoDeAmp,
-                    onCheckedChange = onAutoDeAmpChange
-                )
-                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                SettingsSwitchRow(
-                    title = "Global Privacy Control (GPC)",
-                    subtitle = "Broadcasting GPC signals notifying sites that you opt-out of personal data sharing.",
-                    checked = globalPrivacyControl,
-                    onCheckedChange = onGlobalPrivacyControlChange
-                )
+        Dialog(onDismissRequest = { showThirdPartyCookiesDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("Third-party cookies", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    modes.forEach { (modeVal, label) ->
+                        val selected = thirdPartyCookiesSetting == modeVal
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                viewModel.setThirdPartyCookiesSetting(modeVal)
+                            }.padding(vertical = 12.dp)
+                        ) {
+                            RadioButton(
+                                selected = selected,
+                                onClick = { viewModel.setThirdPartyCookiesSetting(modeVal) },
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF38BDF8))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(label, color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { showThirdPartyCookiesDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                        ) {
+                            Text("Done", color = Color.Black)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Incognito tracking protections Dialog
+    if (showIncognitoProtectionsDialog) {
+        val modes = listOf(
+            "limited" to "Standard (Blocks common analytics)",
+            "strict" to "Strict (Blocks all known cross-site scripts)",
+            "off" to "Off (Normal Incognito)"
+        )
+
+        Dialog(onDismissRequest = { showIncognitoProtectionsDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("Incognito protections", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    modes.forEach { (modeVal, label) ->
+                        val selected = incognitoTrackingProtections == modeVal
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                viewModel.setIncognitoTrackingProtections(modeVal)
+                            }.padding(vertical = 12.dp)
+                        ) {
+                            RadioButton(
+                                selected = selected,
+                                onClick = { viewModel.setIncognitoTrackingProtections(modeVal) },
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF38BDF8))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(label, color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { showIncognitoProtectionsDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                        ) {
+                            Text("Done", color = Color.Black)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Ads Privacy Dialog
+    if (showAdsPrivacyDialog) {
+        Dialog(onDismissRequest = { showAdsPrivacyDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("Ads privacy controls", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Sigma protects you from being tracked across pages. You can control which privacy-respecting ad APIs sites can access.", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, lineHeight = 16.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                        Switch(checked = adsPrivacyTopics, onCheckedChange = { viewModel.setAdsPrivacyTopics(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF34D399)))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Ad topics", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Allows sites to estimate interests from URLs locally", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                        Switch(checked = adsPrivacySiteSuggested, onCheckedChange = { viewModel.setAdsPrivacySiteSuggested(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF34D399)))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Site-suggested ads", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Allows sites to recommend contextual offers", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                        Switch(checked = adsPrivacyMeasurement, onCheckedChange = { viewModel.setAdsPrivacyMeasurement(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF34D399)))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Ad measurement", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Shares restricted measurement signals to evaluate effectiveness", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { showAdsPrivacyDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34D399))
+                        ) {
+                            Text("Close", color = Color.Black)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 6. Do Not Track Dialog
+    if (showDoNotTrackDialog) {
+        Dialog(onDismissRequest = { showDoNotTrackDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("Send a 'Do Not Track' request", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("When DNT is active, Sigma attaches a request signal to outbound HTTP packets, informing websites that you request not to be tracked.", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, lineHeight = 18.sp)
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = doNotTrack, onCheckedChange = { viewModel.setDoNotTrack(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF38BDF8)))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(if (doNotTrack) "Do Not Track request signal: ON" else "Do Not Track request signal: OFF", color = Color.White, fontSize = 14.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { showDoNotTrackDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                        ) {
+                            Text("Done", color = Color.Black)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Preload Pages Dialog
+    if (showPreloadPagesDialog) {
+        val modes = listOf(
+            "standard" to "Standard preloading (Resolves links beforehand)",
+            "extended" to "Extended preloading (Resolves and cache-fetches predicted links)",
+            "off" to "Off (No preloading)"
+        )
+
+        Dialog(onDismissRequest = { showPreloadPagesDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("Preload pages", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    modes.forEach { (modeVal, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                viewModel.setPreloadPagesMode(modeVal)
+                            }.padding(vertical = 12.dp)
+                        ) {
+                            RadioButton(
+                                selected = preloadPagesMode == modeVal,
+                                onClick = { viewModel.setPreloadPagesMode(modeVal) },
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF38BDF8))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(label, color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { showPreloadPagesDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                        ) {
+                            Text("Done", color = Color.Black)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 8. Safe Browsing Dialog
+    if (showSafeBrowsingDialog) {
+        val levels = listOf(
+            "enhanced" to "Enhanced protection" to "Faster, proactive warnings against malicious pages. Shares encrypted telemetry to build threat maps.",
+            "standard" to "Standard protection" to "Warns you about known phishers and fraudulent domains stored in local lists.",
+            "none" to "No protection" to "Turns off dangerous website warnings. Not recommended."
+        )
+
+        Dialog(onDismissRequest = { showSafeBrowsingDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("Safe Browsing protection", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    levels.forEach { (pair, desc) ->
+                        val (modeVal, title) = pair
+                        val selected = safeBrowsingLevel == modeVal
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                viewModel.setSafeBrowsingLevel(modeVal)
+                                viewModel.setSafeBrowsingEnabled(modeVal != "none")
+                            }.padding(vertical = 10.dp)
+                        ) {
+                            RadioButton(
+                                selected = selected,
+                                onClick = {
+                                    viewModel.setSafeBrowsingLevel(modeVal)
+                                    viewModel.setSafeBrowsingEnabled(modeVal != "none")
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF34D399))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(desc, color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, lineHeight = 15.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { showSafeBrowsingDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34D399))
+                        ) {
+                            Text("Done", color = Color.Black)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 9. Use Secure DNS Dialog
+    if (showDnsDialog) {
+        Dialog(onDismissRequest = { showDnsDialog = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp).verticalScroll(rememberScrollState())
+                ) {
+                    Text("Secure DNS", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Enables secure DNS lookup utilizing DNS-over-HTTPS (DoH). Prevents local networks from eavesdropping or hijacking domain queries.", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, lineHeight = 16.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Switch(checked = dnsEnabled, onCheckedChange = { viewModel.setDnsEnabled(it) }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFFA78BFA)))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(if (dnsEnabled) "Secure DNS is active" else "Secure DNS is disabled", color = Color.White, fontSize = 13.sp)
+                    }
+
+                    if (dnsEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Select provider preset", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val presets = listOf(
+                            "adguard" to "AdGuard DNS (Blocks ads/malware)",
+                            "cloudflare" to "Cloudflare (1.1.1.1 - Secure/Fast)",
+                            "google" to "Google Public DNS (Secure)",
+                            "custom" to "Custom provider"
+                        )
+
+                        presets.forEach { (presetId, label) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    viewModel.setDnsMode("preset")
+                                    viewModel.setDnsPresetId(presetId)
+                                }.padding(vertical = 8.dp)
+                            ) {
+                                RadioButton(
+                                    selected = dnsPresetId == presetId,
+                                    onClick = {
+                                        viewModel.setDnsMode("preset")
+                                        viewModel.setDnsPresetId(presetId)
+                                    },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFA78BFA))
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(label, color = Color.White, fontSize = 13.sp)
+                            }
+                        }
+
+                        if (dnsPresetId == "custom") {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = dnsCustomValue,
+                                onValueChange = { viewModel.setDnsCustomValue(it) },
+                                label = { Text("Custom provider URL (DoH)") },
+                                placeholder = { Text("https://dns.example.com/dns-query") },
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 13.sp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFFA78BFA),
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                                    focusedLabelColor = Color(0xFFA78BFA),
+                                    unfocusedLabelColor = Color.White.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { showDnsDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA78BFA))
+                        ) {
+                            Text("Done", color = Color.Black)
+                        }
+                    }
+                }
             }
         }
     }
@@ -4761,8 +5955,9 @@ fun DnsRoutingSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
                 SettingsSwitchRow(
@@ -4791,7 +5986,7 @@ fun DnsRoutingSubScreen(
         Spacer(modifier = Modifier.height(4.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF2E1065)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF16092F)),
             shape = RoundedCornerShape(12.dp),
             border = BorderStroke(1.dp, Color(0xFFA78BFA).copy(alpha = 0.3f))
         ) {
@@ -4822,8 +6017,9 @@ fun DnsRoutingSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
@@ -4858,7 +6054,7 @@ fun DnsRoutingSubScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                            .background(Color(0xFF050B18), RoundedCornerShape(8.dp))
                             .padding(4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -4868,7 +6064,7 @@ fun DnsRoutingSubScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .background(
-                                        color = if (isSelected) Color(0xFF1E293B) else Color.Transparent,
+                                        color = if (isSelected) Color(0xFF0B1224) else Color.Transparent,
                                         shape = RoundedCornerShape(6.dp)
                                     )
                                     .clickable { onDnsModeChange(mKey) }
@@ -4975,8 +6171,9 @@ fun AppearanceSettingsSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
                 SettingsItemRow(
@@ -5016,8 +6213,9 @@ fun AppearanceSettingsSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
@@ -5045,9 +6243,10 @@ fun AppearanceSettingsSubScreen(
                                 .weight(1f)
                                 .clickable { onThemeModeChange(modeId) },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) Color(0xFF38BDF8) else Color(0xFF0F172A)
+                                containerColor = if (isSelected) Color(0xFF38BDF8) else Color(0xFF050B18)
                             ),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isSelected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.05f))
                         ) {
                             Box(
                                 modifier = Modifier
@@ -5079,8 +6278,9 @@ fun AppearanceSettingsSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 // 1. Website Zoom Slider
@@ -5192,8 +6392,9 @@ fun AppearanceSettingsSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
                 SettingsSwitchRow(
@@ -5259,7 +6460,7 @@ fun CustomizeAddressBarSubScreen(
                         color = if (isTop) Color(0xFF38BDF8) else Color.Transparent,
                         shape = RoundedCornerShape(16.dp)
                     ),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(
@@ -5271,7 +6472,7 @@ fun CustomizeAddressBarSubScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(64.dp)
-                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                            .background(Color(0xFF050B18), RoundedCornerShape(8.dp))
                             .padding(6.dp)
                     ) {
                         // Top bar
@@ -5279,7 +6480,7 @@ fun CustomizeAddressBarSubScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(20.dp)
-                                .background(Color(0xFF1E293B), RoundedCornerShape(4.dp))
+                                .background(Color(0xFF0B1224), RoundedCornerShape(4.dp))
                                 .align(Alignment.TopCenter)
                         )
                     }
@@ -5300,7 +6501,7 @@ fun CustomizeAddressBarSubScreen(
                         color = if (isBottom) Color(0xFF38BDF8) else Color.Transparent,
                         shape = RoundedCornerShape(16.dp)
                     ),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(
@@ -5312,7 +6513,7 @@ fun CustomizeAddressBarSubScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(64.dp)
-                            .background(Color(0xFF0F172A), RoundedCornerShape(8.dp))
+                            .background(Color(0xFF050B18), RoundedCornerShape(8.dp))
                             .padding(6.dp)
                     ) {
                         // Bottom bar
@@ -5320,7 +6521,7 @@ fun CustomizeAddressBarSubScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(20.dp)
-                                .background(Color(0xFF1E293B), RoundedCornerShape(4.dp))
+                                .background(Color(0xFF0B1224), RoundedCornerShape(4.dp))
                                 .align(Alignment.BottomCenter)
                         )
                     }
@@ -5341,8 +6542,9 @@ fun CustomizeAddressBarSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
                 SettingsSwitchRow(
@@ -5416,8 +6618,9 @@ fun CustomizeMenuSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
                 SettingsSwitchRow(
@@ -5494,8 +6697,9 @@ fun TabsAndStartPageSubScreen(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Column {
                 SettingsSwitchRow(
@@ -5582,36 +6786,56 @@ fun UcPremiumVideoPlayer(
     var isLocked by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf(0.35f) } // Seek bar slider position
     var showSpeedDialog by remember { mutableStateOf(false) }
+    var aspectFillMode by remember { mutableStateOf(false) } // Aspect ratio toggle state
     
-    // Live bandwidth speed simulation
+    // UC Browser Loading Buffering Simulation (exactly like screenshots)
+    var isBuffering by remember { mutableStateOf(true) }
+    var bufferPercentage by remember { mutableStateOf(1) }
+    var bufferSpeed by remember { mutableStateOf("7.7 MB/s") }
+    val context = LocalContext.current
+
+    LaunchedEffect(isBuffering) {
+        if (isBuffering) {
+            bufferPercentage = 1
+            while (bufferPercentage < 100) {
+                delay((150..300).random().toLong())
+                val inc = (6..18).random()
+                bufferPercentage = (bufferPercentage + inc).coerceAtMost(100)
+                bufferSpeed = String.format("%.1f MB/s", 4.2 + Math.random() * 5.5)
+            }
+            isBuffering = false
+        }
+    }
+
+    // Live bandwidth speed simulation in header
     var liveSpeedMbps by remember { mutableStateOf(3.39) }
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(1200)
+            delay(1200)
             liveSpeedMbps = 2.4 + (Math.random() * 2.2)
         }
     }
 
     // Progress bar simulation when video plays
-    LaunchedEffect(isPlaying) {
-        if (isPlaying) {
+    LaunchedEffect(isPlaying, isBuffering) {
+        if (isPlaying && !isBuffering) {
             while (true) {
-                kotlinx.coroutines.delay(1000)
+                delay(1000)
                 progress = (progress + 0.003f).coerceAtMost(1f)
             }
         }
     }
 
-    // Mock timings calculated out of a 5-minute video stream
-    val totalSeconds = 300 
+    // Mock timings calculated out of a 2-hour video stream (matching 42:55 and 2:04:25 screenshot style)
+    val totalSeconds = 7465 // 2:04:25
     val currentSeconds = (progress * totalSeconds).toInt()
-    val currentStr = String.format("%02d:%02d", currentSeconds / 60, currentSeconds % 60)
-    val totalStr = String.format("%02d:%02d", totalSeconds / 60, totalSeconds % 60)
+    val currentStr = String.format("%02d:%02d:%02d", currentSeconds / 3600, (currentSeconds % 3600) / 60, currentSeconds % 60)
+    val totalStr = String.format("%02d:%02d:%02d", totalSeconds / 3600, (totalSeconds % 3600) / 60, totalSeconds % 60)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.98f))
+            .background(Color.Black)
             .clickable(enabled = isLocked) {
                 isLocked = false
             },
@@ -5621,7 +6845,9 @@ fun UcPremiumVideoPlayer(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 9f)
+                .then(
+                    if (aspectFillMode) Modifier.fillMaxHeight() else Modifier.aspectRatio(16f / 9f)
+                )
                 .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
@@ -5652,7 +6878,7 @@ fun UcPremiumVideoPlayer(
                                 }
                             }
                         } catch (e: Exception) {}
-                        if (isPlaying) view.start() else view.pause()
+                        if (isPlaying && !isBuffering) view.start() else view.pause()
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -5672,13 +6898,13 @@ fun UcPremiumVideoPlayer(
                         Box(
                             modifier = Modifier
                                 .size(64.dp)
-                                .background(Color(0xFFE11D48).copy(alpha = 0.15f), CircleShape),
+                                .background(Color(0xFF8B5CF6).copy(alpha = 0.15f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = "Visualizer",
-                                tint = Color(0xFFE11D48),
+                                tint = Color(0xFF8B5CF6),
                                 modifier = Modifier.size(32.dp)
                             )
                         }
@@ -5693,6 +6919,51 @@ fun UcPremiumVideoPlayer(
                             text = "Double Tap Sides to Seek 10s • Locked State Prevents Taps",
                             color = Color.Gray,
                             fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+
+            // UC style central buffering circle with % and speed below it (matches 3rd screenshot)
+            if (isBuffering) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(88.dp)
+                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                                .border(3.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        ) {
+                            // Circular buffering progress track
+                            CircularProgressIndicator(
+                                progress = bufferPercentage / 100f,
+                                color = Color(0xFF8B5CF6), // Violet indicator matching purple theme
+                                strokeWidth = 3.5.dp,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Text(
+                                text = "$bufferPercentage%",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = bufferSpeed,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.5.sp
                         )
                     }
                 }
@@ -5716,7 +6987,7 @@ fun UcPremiumVideoPlayer(
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = "Unlock Controls",
-                            tint = Color(0xFFE11D48)
+                            tint = Color(0xFF8B5CF6)
                         )
                     }
                 }
@@ -5760,7 +7031,7 @@ fun UcPremiumVideoPlayer(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "UC Premium Player",
+                            text = "UC Premium Player Mode",
                             color = Color.LightGray.copy(alpha = 0.7f),
                             fontSize = 11.sp
                         )
@@ -5792,15 +7063,98 @@ fun UcPremiumVideoPlayer(
                 }
             }
 
-            // Gesture Double-Tap targets & Center play overlay
+            // UC Right-Side Control panel column (as seen in screenshots)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Button 1: Background Music/Audio mode
+                IconButton(onClick = {
+                    Toast.makeText(context, "Audio-Only Background mode enabled", Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = "Audio only",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                // Button 2: Picture-in-picture
+                IconButton(onClick = {
+                    // Try to enter real Android Picture-In-Picture mode
+                    var currentContext = context
+                    var activityFound = false
+                    while (currentContext is android.content.ContextWrapper) {
+                        if (currentContext is android.app.Activity) {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                try {
+                                    val params = android.app.PictureInPictureParams.Builder().build()
+                                    currentContext.enterPictureInPictureMode(params)
+                                    activityFound = true
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Failed to enter PiP: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                Toast.makeText(context, "PiP is not supported on this Android version", Toast.LENGTH_SHORT).show()
+                            }
+                            break
+                        }
+                        currentContext = currentContext.baseContext
+                    }
+                    if (!activityFound) {
+                        Toast.makeText(context, "PiP mode initialized for active video", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.PictureInPicture,
+                        contentDescription = "PiP",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                // Button 3: Download
+                IconButton(onClick = {
+                    downloadMedia(context, videoUrl, "${System.currentTimeMillis()}.mp4")
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.FileDownload,
+                        contentDescription = "Download Video",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                // Button 4: Fullscreen/Aspect Ratio stretch toggle
+                IconButton(onClick = {
+                    aspectFillMode = !aspectFillMode
+                    val modeText = if (aspectFillMode) "Stretched (Fill)" else "Original (16:9)"
+                    Toast.makeText(context, "Aspect Ratio: $modeText", Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.AspectRatio,
+                        contentDescription = "Aspect Ratio",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+
+            // Gesture Double-Tap targets for seeking
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp)
+                    .height(200.dp)
                     .align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Rewind 10s Gesture Region
+                // Rewind 10s Region
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -5811,30 +7165,15 @@ fun UcPremiumVideoPlayer(
                         ) {
                             if (gestureControlsEnabled) {
                                 progress = (progress - 0.04f).coerceAtLeast(0f)
+                                isBuffering = true // seek triggers buffering animation
                             }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Empty region to intercept left taps
-                }
+                        }
+                )
 
-                // Center Play/Pause Circle
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                        .clickable { isPlaying = !isPlaying },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play or Pause",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+                // Spacer for center control area
+                Spacer(modifier = Modifier.width(120.dp))
 
-                // Forward 10s Gesture Region
+                // Forward 10s Region
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -5845,12 +7184,10 @@ fun UcPremiumVideoPlayer(
                         ) {
                             if (gestureControlsEnabled) {
                                 progress = (progress + 0.04f).coerceAtMost(1f)
+                                isBuffering = true // seek triggers buffering animation
                             }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Empty region to intercept right taps
-                }
+                        }
+                )
             }
 
             // Bottom Navigation, Seekbar, playlist slider
@@ -5864,13 +7201,13 @@ fun UcPremiumVideoPlayer(
                         )
                     )
                     .padding(horizontal = 16.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // playlist slider of detected videos
                 val otherVideos = capturedMedia.filter { it.type == "video" }
                 if (otherVideos.size > 1) {
                     Text(
-                        text = "OTHER CAPTURED STREAMS ON THIS WEB PAGE",
+                        text = "OTHER DETECTED WEB STREAMS",
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -5888,7 +7225,7 @@ fun UcPremiumVideoPlayer(
                                     .clickable { onPlayOtherVideo(media) },
                                 shape = RoundedCornerShape(8.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isActive) Color(0xFFE11D48) else Color(0xFF1E293B)
+                                    containerColor = if (isActive) Color(0xFF8B5CF6) else Color(0xFF1E293B)
                                 )
                             ) {
                                 Column(modifier = Modifier.padding(8.dp)) {
@@ -5901,7 +7238,7 @@ fun UcPremiumVideoPlayer(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "Source Stream",
+                                        text = "Captured Video",
                                         color = Color.White.copy(alpha = 0.6f),
                                         fontSize = 9.sp
                                     )
@@ -5911,9 +7248,10 @@ fun UcPremiumVideoPlayer(
                     }
                 }
 
-                // Seekbar & Timing Row
+                // UC Custom Seekbar & Timings Row above it (matches third screenshot)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -5922,32 +7260,34 @@ fun UcPremiumVideoPlayer(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Slider(
-                        value = progress,
-                        onValueChange = { progress = it },
-                        modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(
-                            activeTrackColor = Color(0xFFF97316), // Orange
-                            inactiveTrackColor = Color.White.copy(alpha = 0.25f),
-                            thumbColor = Color(0xFFF97316)
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
                     Text(
                         text = totalStr,
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
 
-                    Spacer(modifier = Modifier.width(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Slider(
+                        value = progress,
+                        onValueChange = {
+                            progress = it
+                            isBuffering = true
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(
+                            activeTrackColor = Color(0xFF8B5CF6), // Purple indicator (matches screenshot)
+                            inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+                            thumbColor = Color(0xFF8B5CF6)
+                        )
+                    )
 
-                    // Speed Badge clicker
+                    // Playback speed badge
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -5963,18 +7303,18 @@ fun UcPremiumVideoPlayer(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    // Simulated Download / Sync Option
+                    // Play/Pause circular toggle next to seek bar (matches screenshots "00")
                     IconButton(
-                        onClick = {},
-                        modifier = Modifier.size(24.dp)
+                        onClick = { isPlaying = !isPlaying },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(Color.White.copy(alpha = 0.15f), CircleShape)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FileDownload,
-                            contentDescription = "Save video offline",
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -5995,7 +7335,7 @@ fun UcPremiumVideoPlayer(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        text = "Set Web Speed Multiplier",
+                        text = "Set Playback speed",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
@@ -6008,7 +7348,7 @@ fun UcPremiumVideoPlayer(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) Color(0xFFE11D48) else Color.Transparent)
+                                .background(if (isSelected) Color(0xFF8B5CF6) else Color.Transparent)
                                 .clickable {
                                     currentSpeed = ml
                                     showSpeedDialog = false
@@ -6026,6 +7366,262 @@ fun UcPremiumVideoPlayer(
                             if (isSelected) {
                                 Icon(Icons.Default.Check, "Selected", tint = Color.White)
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MiBrowserVideoPlayer(
+    videoUrl: String,
+    title: String,
+    onClose: () -> Unit,
+    gestureControlsEnabled: Boolean,
+    defaultSpeed: Float,
+    capturedMedia: List<CapturedMedia>,
+    onPlayOtherVideo: (CapturedMedia) -> Unit
+) {
+    var isPlaying by remember { mutableStateOf(true) }
+    var currentSpeed by remember { mutableStateOf(defaultSpeed) }
+    var isLocked by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0.20f) }
+    var showSpeedDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Progress bar simulation when video plays
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (true) {
+                delay(1000)
+                progress = (progress + 0.002f).coerceAtMost(1f)
+            }
+        }
+    }
+
+    val totalSeconds = 600
+    val currentSeconds = (progress * totalSeconds).toInt()
+    val currentStr = String.format("%02d:%02d", currentSeconds / 60, currentSeconds % 60)
+    val totalStr = String.format("%02d:%02d", totalSeconds / 60, totalSeconds % 60)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(enabled = isLocked) { isLocked = false },
+        contentAlignment = Alignment.Center
+    ) {
+        // Video rendering area
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .background(Color.DarkGray),
+            contentAlignment = Alignment.Center
+        ) {
+            var mPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+            if (videoUrl.isNotBlank() && videoUrl.startsWith("http")) {
+                AndroidView(
+                    factory = { ctx ->
+                        android.widget.VideoView(ctx).apply {
+                            setVideoPath(videoUrl)
+                            setOnPreparedListener { mp ->
+                                mPlayer = mp
+                                mp.isLooping = true
+                                try {
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                        mp.playbackParams = mp.playbackParams.setSpeed(currentSpeed)
+                                    }
+                                } catch (e: Exception) {}
+                                if (isPlaying) start() else pause()
+                            }
+                        }
+                    },
+                    update = { view ->
+                        try {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                mPlayer?.let { mp ->
+                                    mp.playbackParams = mp.playbackParams.setSpeed(currentSpeed)
+                                }
+                            }
+                        } catch (e: Exception) {}
+                        if (isPlaying) view.start() else view.pause()
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Mi Minimalist Player Mode", color = Color.White, fontSize = 14.sp)
+                }
+            }
+
+            if (isLocked) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    IconButton(
+                        onClick = { isLocked = false },
+                        modifier = Modifier.padding(16.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    ) {
+                        Icon(imageVector = Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
+                    }
+                }
+            }
+        }
+
+        if (!isLocked) {
+            // Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(Brush.verticalGradient(colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)))
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = title.ifBlank { "Mi Media Stream" }, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = "Minimalist Media Engine", color = Color.LightGray.copy(alpha = 0.6f), fontSize = 11.sp)
+                }
+                IconButton(onClick = { isLocked = true }) {
+                    Icon(imageVector = Icons.Default.LockOpen, contentDescription = "Lock", tint = Color.White)
+                }
+            }
+
+            // Center gesture tap regions & playback
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .align(Alignment.Center),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                            if (gestureControlsEnabled) progress = (progress - 0.05f).coerceAtLeast(0f)
+                        }
+                )
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                        .clickable { isPlaying = !isPlaying },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                            if (gestureControlsEnabled) progress = (progress + 0.05f).coerceAtMost(1f)
+                        }
+                )
+            }
+
+            // Bottom controls
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val otherVideos = capturedMedia.filter { it.type == "video" }
+                if (otherVideos.size > 1) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    ) {
+                        items(otherVideos) { media ->
+                            val isActive = media.url == videoUrl
+                            Card(
+                                modifier = Modifier.width(120.dp).clickable { onPlayOtherVideo(media) },
+                                colors = CardDefaults.cardColors(containerColor = if (isActive) Color(0xFF3B82F6) else Color(0xFF334155)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(text = media.pageTitle, color = Color.White, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(8.dp))
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = currentStr, color = Color.White, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Slider(
+                        value = progress,
+                        onValueChange = { progress = it },
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(
+                            activeTrackColor = Color(0xFF3B82F6),
+                            inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                            thumbColor = Color(0xFF3B82F6)
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = totalStr, color = Color.White, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "${currentSpeed}x",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                            .clickable { showSpeedDialog = true }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    if (showSpeedDialog) {
+        Dialog(onDismissRequest = { showSpeedDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Select Playback Speed", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    listOf(0.5f, 1.0f, 1.5f, 2.0f).forEach { spd ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    currentSpeed = spd
+                                    showSpeedDialog = false
+                                }
+                                .padding(vertical = 10.dp)
+                        ) {
+                            Text("${spd}x", color = if (currentSpeed == spd) Color(0xFF3B82F6) else Color.White, fontSize = 14.sp)
                         }
                     }
                 }

@@ -11,13 +11,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.viewmodel.BrowserViewModel
 import com.example.data.DnsManager
 import com.example.data.AdBlocker
+import com.example.data.UserScript
 import java.io.ByteArrayInputStream
 
 class MediaCaptureInterface(
     private val pageTitleProvider: () -> String,
     private val pageUrlProvider: () -> String,
     private val onCapture: (url: String, type: String, title: String, pageUrl: String) -> Unit,
-    private val onLinkLongPress: (url: String, text: String) -> Unit
+    private val onLinkLongPress: (url: String, text: String) -> Unit,
+    private val onVideoIconClicked: (url: String, title: String) -> Unit
 ) {
     @android.webkit.JavascriptInterface
     fun onImageFound(url: String) {
@@ -32,6 +34,11 @@ class MediaCaptureInterface(
     @android.webkit.JavascriptInterface
     fun onLinkLongPressed(url: String, text: String) {
         onLinkLongPress(url, text)
+    }
+
+    @android.webkit.JavascriptInterface
+    fun onVideoIconClicked(url: String, title: String) {
+        onVideoIconClicked(url, title)
     }
 }
 
@@ -55,6 +62,21 @@ object WebViewPool {
                         },
                         onLinkLongPress = { url, text ->
                             viewModel.showLinkContextMenu(url, text)
+                        },
+                        onVideoIconClicked = { url, title ->
+                            val finalUrl = if (url.isBlank() || url.startsWith("blob:")) {
+                                val lastVid = viewModel.allCapturedMedia.value.lastOrNull { it.type == "video" }
+                                lastVid?.url ?: url
+                            } else {
+                                url
+                            }
+                            if (finalUrl.isNotBlank()) {
+                                viewModel.setUcPlayerVideoUrl(finalUrl)
+                                viewModel.setUcPlayerVideoTitle(title)
+                                viewModel.setUcPlayerActive(true)
+                            } else {
+                                android.widget.Toast.makeText(context, "Detecting video stream... Please play the video first", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                     ),
                     "MediaCaptureInterface"
@@ -275,6 +297,24 @@ object WebViewPool {
                     viewModel.updateTabTitleAndUrl(tabId, view?.title ?: "Browser Tab", url)
                 }
 
+                // Evaluate enabled User Scripts
+                val scripts = viewModel.allUserScripts.value
+                val pageUrl = url ?: ""
+                scripts.forEach { script ->
+                    if (script.isEnabled) {
+                        val matchPattern = script.matchUrl.trim()
+                        val shouldRun = if (matchPattern == "*" || matchPattern.isBlank()) {
+                            true
+                        } else {
+                            val cleanPattern = matchPattern.lowercase().replace("*", "")
+                            pageUrl.lowercase().contains(cleanPattern)
+                        }
+                        if (shouldRun) {
+                            view?.evaluateJavascript(script.code, null)
+                        }
+                    }
+                }
+
                 val adBlockOn = viewModel.adBlockerOn.value
                 val cosmeticBlockScript = if (adBlockOn) {
                     """
@@ -434,7 +474,103 @@ object WebViewPool {
                             }
                         }
 
-                        // Scan videos on load
+                        // Scan videos on load & inject corner overlay buttons
+                        var videoOverlays = [];
+
+                        function createPlayOverlayForVideo(video) {
+                            if (!video || video.dataset.hasPremiumButton === "true") return;
+                            video.dataset.hasPremiumButton = "true";
+
+                            var src = video.src || (video.getElementsByTagName('source')[0] && video.getElementsByTagName('source')[0].src) || "";
+
+                            var btn = document.createElement('div');
+                            btn.className = 'uc-premium-video-corner-play-btn';
+                            btn.style.position = 'absolute';
+                            btn.style.width = '34px';
+                            btn.style.height = '34px';
+                            btn.style.borderRadius = '50%';
+                            btn.style.background = 'linear-gradient(135deg, #8B5CF6, #EC4899)';
+                            btn.style.boxShadow = '0 3px 8px rgba(0,0,0,0.5)';
+                            btn.style.display = 'flex';
+                            btn.style.alignItems = 'center';
+                            btn.style.justifyContent = 'center';
+                            btn.style.zIndex = '2147483647';
+                            btn.style.cursor = 'pointer';
+                            btn.style.pointerEvents = 'auto';
+                            btn.style.transition = 'transform 0.1s ease';
+                            btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>';
+
+                            var pulse = document.createElement('div');
+                            pulse.style.position = 'absolute';
+                            pulse.style.width = '100%';
+                            pulse.style.height = '100%';
+                            pulse.style.borderRadius = '50%';
+                            pulse.style.background = 'rgba(139, 92, 246, 0.4)';
+                            pulse.style.animation = 'ucPulseOverlay 1.5s infinite';
+                            btn.appendChild(pulse);
+
+                            if (!document.getElementById('uc-pulse-styles')) {
+                                var sheet = document.createElement('style');
+                                sheet.id = 'uc-pulse-styles';
+                                sheet.innerHTML = `
+                                    @keyframes ucPulseOverlay {
+                                        0% { transform: scale(1); opacity: 0.8; }
+                                        100% { transform: scale(1.4); opacity: 0; }
+                                    }
+                                `;
+                                document.head.appendChild(sheet);
+                            }
+
+                            btn.onclick = function(e) {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                window.MediaCaptureInterface.onVideoIconClicked(src, document.title || 'Video Stream');
+                            };
+
+                            document.body.appendChild(btn);
+
+                            function reposition() {
+                                if (!video.isConnected) {
+                                    btn.remove();
+                                    return false;
+                                }
+                                var rect = video.getBoundingClientRect();
+                                if (rect.width > 40 && rect.height > 40 && rect.top < window.innerHeight && rect.bottom > 0) {
+                                    btn.style.left = (window.scrollX + rect.left + rect.width - 40) + 'px';
+                                    btn.style.top = (window.scrollY + rect.top + 6) + 'px';
+                                    btn.style.display = 'flex';
+                                } else {
+                                    btn.style.display = 'none';
+                                }
+                                return true;
+                            }
+
+                            reposition();
+                            videoOverlays.push({ video: video, btn: btn, reposition: reposition });
+                        }
+
+                        function scanAndAttach() {
+                            var videos = document.getElementsByTagName('video');
+                            for (var i = 0; i < videos.length; i++) {
+                                createPlayOverlayForVideo(videos[i]);
+                            }
+                        }
+
+                        window.addEventListener('scroll', function() {
+                            videoOverlays = videoOverlays.filter(function(item) {
+                                return item.reposition();
+                            });
+                        }, { passive: true });
+
+                        window.addEventListener('resize', function() {
+                            videoOverlays = videoOverlays.filter(function(item) {
+                                return item.reposition();
+                            });
+                        }, { passive: true });
+
+                        setInterval(scanAndAttach, 1500);
+                        scanAndAttach();
+
                         var vids = document.getElementsByTagName('video');
                         for (var i = 0; i < vids.length; i++) {
                             var src = vids[i].src || (vids[i].getElementsByTagName('source')[0] && vids[i].getElementsByTagName('source')[0].src);

@@ -60,4 +60,15 @@ class BrowserRepository(private val browserDao: BrowserDao) {
     suspend fun deleteMediaById(id: Long) = browserDao.deleteMediaById(id)
 
     suspend fun clearAllCapturedMedia() = browserDao.clearAllCapturedMedia()
+
+    // --- User Scripts ---
+    val allUserScripts: Flow<List<UserScript>> = browserDao.getAllUserScripts()
+
+    suspend fun insertUserScript(script: UserScript): Long = browserDao.insertUserScript(script)
+
+    suspend fun updateUserScript(script: UserScript) = browserDao.updateUserScript(script)
+
+    suspend fun deleteUserScript(script: UserScript) = browserDao.deleteUserScript(script)
+
+    suspend fun deleteUserScriptById(id: Long) = browserDao.deleteUserScriptById(id)
 }

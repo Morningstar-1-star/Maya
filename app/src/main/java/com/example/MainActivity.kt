@@ -15,14 +15,21 @@ import com.example.ui.BrowserScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.BrowserViewModel
 
+import androidx.lifecycle.ViewModelProvider
+
 class MainActivity : ComponentActivity() {
+    private lateinit var viewModel: BrowserViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        viewModel = ViewModelProvider(
+            this, 
+            BrowserViewModel.Factory(application)
+        )[BrowserViewModel::class.java]
+
         setContent {
-            val viewModel: BrowserViewModel = viewModel(
-                factory = BrowserViewModel.Factory(application)
-            )
             val themeMode by viewModel.themeMode.collectAsState()
             val isDarkTheme = when (themeMode) {
                 "light" -> false
@@ -37,6 +44,16 @@ class MainActivity : ComponentActivity() {
                     BrowserScreen(viewModel = viewModel)
                 }
             }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (::viewModel.isInitialized) {
+            viewModel.setIsInPictureInPictureMode(isInPictureInPictureMode)
         }
     }
 }

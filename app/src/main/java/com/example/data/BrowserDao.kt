@@ -102,4 +102,20 @@ interface BrowserDao {
 
     @Query("DELETE FROM captured_media")
     suspend fun clearAllCapturedMedia()
+
+    // --- User Scripts Management ---
+    @Query("SELECT * FROM user_scripts ORDER BY timestamp DESC")
+    fun getAllUserScripts(): Flow<List<UserScript>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUserScript(script: UserScript): Long
+
+    @Update
+    suspend fun updateUserScript(script: UserScript)
+
+    @Delete
+    suspend fun deleteUserScript(script: UserScript)
+
+    @Query("DELETE FROM user_scripts WHERE id = :id")
+    suspend fun deleteUserScriptById(id: Long)
 }

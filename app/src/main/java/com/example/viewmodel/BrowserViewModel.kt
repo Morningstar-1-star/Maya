@@ -12,6 +12,7 @@ import com.example.data.BrowserTab
 import com.example.data.HistoryEntry
 import com.example.data.HomepageShortcut
 import com.example.data.CapturedMedia
+import com.example.data.UserScript
 import com.example.data.DnsManager
 import com.example.data.AdBlocker
 import android.content.Context
@@ -29,6 +30,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val allShortcuts: StateFlow<List<HomepageShortcut>>
     val allCapturedMedia: StateFlow<List<CapturedMedia>>
     val likedSavedMedia: StateFlow<List<CapturedMedia>>
+    val allUserScripts: StateFlow<List<UserScript>>
 
     // Custom Wallpaper State
     private val prefs = application.getSharedPreferences("browser_settings", Context.MODE_PRIVATE)
@@ -48,6 +50,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val searchSuggestions: StateFlow<List<String>> = _searchSuggestions.asStateFlow()
+
+    private var suggestionsJob: kotlinx.coroutines.Job? = null
 
     private val _adBlockerOn = MutableStateFlow(true)
     val adBlockerOn: StateFlow<Boolean> = _adBlockerOn.asStateFlow()
@@ -158,6 +165,50 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val _globalPrivacyControl = MutableStateFlow(prefs.getBoolean("global_privacy_control", true))
     val globalPrivacyControl: StateFlow<Boolean> = _globalPrivacyControl.asStateFlow()
+
+    // New Privacy and Security States
+    private val _thirdPartyCookiesSetting = MutableStateFlow(prefs.getString("third_party_cookies_setting", "block_incognito") ?: "block_incognito")
+    val thirdPartyCookiesSetting: StateFlow<String> = _thirdPartyCookiesSetting.asStateFlow()
+
+    private val _incognitoTrackingProtections = MutableStateFlow(prefs.getString("incognito_tracking_protections", "limited") ?: "limited")
+    val incognitoTrackingProtections: StateFlow<String> = _incognitoTrackingProtections.asStateFlow()
+
+    private val _adsPrivacyTopics = MutableStateFlow(prefs.getBoolean("ads_privacy_topics", true))
+    val adsPrivacyTopics: StateFlow<Boolean> = _adsPrivacyTopics.asStateFlow()
+
+    private val _adsPrivacySiteSuggested = MutableStateFlow(prefs.getBoolean("ads_privacy_site_suggested", true))
+    val adsPrivacySiteSuggested: StateFlow<Boolean> = _adsPrivacySiteSuggested.asStateFlow()
+
+    private val _isInPictureInPictureMode = MutableStateFlow(false)
+    val isInPictureInPictureMode: StateFlow<Boolean> = _isInPictureInPictureMode.asStateFlow()
+
+    fun setIsInPictureInPictureMode(value: Boolean) {
+        _isInPictureInPictureMode.value = value
+        if (value) {
+            _ucPlayerActive.value = true
+        }
+    }
+
+    private val _adsPrivacyMeasurement = MutableStateFlow(prefs.getBoolean("ads_privacy_measurement", true))
+    val adsPrivacyMeasurement: StateFlow<Boolean> = _adsPrivacyMeasurement.asStateFlow()
+
+    private val _preloadPagesMode = MutableStateFlow(prefs.getString("preload_pages_mode", "standard") ?: "standard")
+    val preloadPagesMode: StateFlow<String> = _preloadPagesMode.asStateFlow()
+
+    private val _lockIncognitoTabs = MutableStateFlow(prefs.getBoolean("lock_incognito_tabs", false))
+    val lockIncognitoTabs: StateFlow<Boolean> = _lockIncognitoTabs.asStateFlow()
+
+    private val _safeBrowsingLevel = MutableStateFlow(prefs.getString("safe_browsing_level", "standard") ?: "standard")
+    val safeBrowsingLevel: StateFlow<String> = _safeBrowsingLevel.asStateFlow()
+
+    private val _warnPasswordCompromised = MutableStateFlow(prefs.getBoolean("warn_password_compromised", true))
+    val warnPasswordCompromised: StateFlow<Boolean> = _warnPasswordCompromised.asStateFlow()
+
+    private val _jsOptimisationAndSecurity = MutableStateFlow(prefs.getBoolean("js_optimisation_and_security", true))
+    val jsOptimisationAndSecurity: StateFlow<Boolean> = _jsOptimisationAndSecurity.asStateFlow()
+
+    private val _accessPaymentMethods = MutableStateFlow(prefs.getBoolean("access_payment_methods", true))
+    val accessPaymentMethods: StateFlow<Boolean> = _accessPaymentMethods.asStateFlow()
 
     // Link long-press custom context menu states
     private val _linkContextMenuUrl = MutableStateFlow<String?>(null)
@@ -311,6 +362,46 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+        allUserScripts = repository.allUserScripts.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        // Prepopulate default user scripts if empty
+        viewModelScope.launch {
+            val existingScripts = repository.allUserScripts.first()
+            if (existingScripts.isEmpty()) {
+                repository.insertUserScript(
+                    UserScript(
+                        name = "Auto Scroll Page",
+                        description = "Adds an auto-scroller. Press Shift + S to toggle automatic slow down-scrolling on long articles.",
+                        matchUrl = "*",
+                        code = "(function() {\n    let scrolling = false;\n    let scrollInterval;\n    window.addEventListener('keydown', function(e) {\n        if (e.shiftKey && e.key.toLowerCase() === 's') {\n            scrolling = !scrolling;\n            if (scrolling) {\n                scrollInterval = setInterval(() => { window.scrollBy(0, 1); }, 30);\n                console.log(\"Auto Scroll Enabled\");\n            } else {\n                clearInterval(scrollInterval);\n                console.log(\"Auto Scroll Disabled\");\n            }\n        }\n    });\n})();",
+                        isEnabled = true
+                    )
+                )
+                repository.insertUserScript(
+                    UserScript(
+                        name = "Emerald Tint Reader",
+                        description = "Changes the webpage background to a soft, warm emerald tint for pleasant reading and eye relief.",
+                        matchUrl = "*",
+                        code = "(function() {\n    const style = document.createElement('style');\n    style.innerHTML = 'body, main, article { background-color: #f0fdf4 !important; color: #166534 !important; }';\n    document.head.appendChild(style);\n})();",
+                        isEnabled = false
+                    )
+                )
+                repository.insertUserScript(
+                    UserScript(
+                        name = "Highlight Ad Frames",
+                        description = "Highlights remaining frames and ad containers with a prominent neon yellow dashed border.",
+                        matchUrl = "*",
+                        code = "(function() {\n    const style = document.createElement('style');\n    style.innerHTML = 'iframe, [class*=\"ad-\"], [id*=\"ad-\"] { border: 2px dashed #facc15 !important; opacity: 0.8 !important; }';\n    document.head.appendChild(style);\n})();",
+                        isEnabled = false
+                    )
+                )
+            }
+        }
 
         // Prepopulate default shortcuts if empty
         viewModelScope.launch {
@@ -716,6 +807,89 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putBoolean("global_privacy_control", enabled).apply()
     }
 
+    fun setThirdPartyCookiesSetting(value: String) {
+        _thirdPartyCookiesSetting.value = value
+        prefs.edit().putString("third_party_cookies_setting", value).apply()
+    }
+
+    fun setIncognitoTrackingProtections(value: String) {
+        _incognitoTrackingProtections.value = value
+        prefs.edit().putString("incognito_tracking_protections", value).apply()
+    }
+
+    fun setAdsPrivacyTopics(enabled: Boolean) {
+        _adsPrivacyTopics.value = enabled
+        prefs.edit().putBoolean("ads_privacy_topics", enabled).apply()
+    }
+
+    fun setAdsPrivacySiteSuggested(enabled: Boolean) {
+        _adsPrivacySiteSuggested.value = enabled
+        prefs.edit().putBoolean("ads_privacy_site_suggested", enabled).apply()
+    }
+
+    fun setAdsPrivacyMeasurement(enabled: Boolean) {
+        _adsPrivacyMeasurement.value = enabled
+        prefs.edit().putBoolean("ads_privacy_measurement", enabled).apply()
+    }
+
+    fun setPreloadPagesMode(value: String) {
+        _preloadPagesMode.value = value
+        prefs.edit().putString("preload_pages_mode", value).apply()
+    }
+
+    fun setLockIncognitoTabs(enabled: Boolean) {
+        _lockIncognitoTabs.value = enabled
+        prefs.edit().putBoolean("lock_incognito_tabs", enabled).apply()
+    }
+
+    fun setSafeBrowsingLevel(value: String) {
+        _safeBrowsingLevel.value = value
+        prefs.edit().putString("safe_browsing_level", value).apply()
+    }
+
+    fun setWarnPasswordCompromised(enabled: Boolean) {
+        _warnPasswordCompromised.value = enabled
+        prefs.edit().putBoolean("warn_password_compromised", enabled).apply()
+    }
+
+    fun setJsOptimisationAndSecurity(enabled: Boolean) {
+        _jsOptimisationAndSecurity.value = enabled
+        prefs.edit().putBoolean("js_optimisation_and_security", enabled).apply()
+    }
+
+    fun setAccessPaymentMethods(enabled: Boolean) {
+        _accessPaymentMethods.value = enabled
+        prefs.edit().putBoolean("access_payment_methods", enabled).apply()
+    }
+
+    fun deleteBrowsingData(history: Boolean, cookies: Boolean, cache: Boolean, tabs: Boolean) {
+        viewModelScope.launch {
+            if (history) {
+                repository.clearAllHistory()
+            }
+            if (cookies) {
+                try {
+                    android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                    android.webkit.CookieManager.getInstance().flush()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            if (cache) {
+                try {
+                    val context = getApplication<Application>().applicationContext
+                    context.cacheDir.deleteRecursively()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            if (tabs) {
+                repository.clearAllTabs()
+                createDefaultTab()
+            }
+        }
+    }
+
     fun setThemeMode(mode: String) {
         _themeMode.value = mode
         prefs.edit().putString("theme_mode", mode).apply()
@@ -865,6 +1039,35 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
+        suggestionsJob?.cancel()
+        if (query.isBlank()) {
+            _searchSuggestions.value = emptyList()
+            return
+        }
+        suggestionsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.delay(300)
+            try {
+                val url = "https://suggestqueries.google.com/complete/search?client=chrome&q=" + java.net.URLEncoder.encode(query, "UTF-8")
+                val client = okhttp3.OkHttpClient()
+                val request = okhttp3.Request.Builder().url(url).build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val bodyString = response.body?.string() ?: ""
+                        val jsonArray = org.json.JSONArray(bodyString)
+                        val suggestionsArray = jsonArray.optJSONArray(1)
+                        val suggestionsList = mutableListOf<String>()
+                        if (suggestionsArray != null) {
+                            for (i in 0 until suggestionsArray.length()) {
+                                suggestionsList.add(suggestionsArray.optString(i))
+                            }
+                        }
+                        _searchSuggestions.value = suggestionsList
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun toggleBookmark(title: String, url: String) {
@@ -1083,6 +1286,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun clearCapturedMediaHistory() {
         viewModelScope.launch {
             repository.clearAllCapturedMedia()
+        }
+    }
+
+    fun insertUserScript(script: UserScript) {
+        viewModelScope.launch {
+            repository.insertUserScript(script)
+        }
+    }
+
+    fun updateUserScript(script: UserScript) {
+        viewModelScope.launch {
+            repository.updateUserScript(script)
+        }
+    }
+
+    fun deleteUserScript(script: UserScript) {
+        viewModelScope.launch {
+            repository.deleteUserScript(script)
+        }
+    }
+
+    fun deleteUserScriptById(id: Long) {
+        viewModelScope.launch {
+            repository.deleteUserScriptById(id)
         }
     }
 
