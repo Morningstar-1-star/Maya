@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.google.devtools.ksp)
     alias(libs.plugins.roborazzi)
     alias(libs.plugins.secrets)
-    // alias(libs.plugins.google.services) // Disabled until Firebase is added
+    // alias(libs.plugins.google.services)
 }
 
 android {
@@ -21,18 +21,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    signingConfigs {
-        create("release") {
-            val keystorePath =
-                System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-            storeFile = file(keystorePath)
-            storePassword = System.getenv("STORE_PASSWORD")
-            keyAlias = "upload"
-            keyPassword = System.getenv("KEY_PASSWORD")
-        }
-    }
-
     buildTypes {
+        debug {
+            // Default Android debug signing
+        }
+
         release {
             isCrunchPngs = false
             isMinifyEnabled = false
@@ -40,11 +33,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
-        }
-
-        debug {
-            // Uses Android's default debug keystore automatically.
+            // Default signing
         }
     }
 
