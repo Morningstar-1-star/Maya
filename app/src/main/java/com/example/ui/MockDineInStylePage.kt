@@ -92,7 +92,7 @@ fun MockDineInStylePage(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (wallpaperUrl == null) Color(0xFFF2F2F7) else Color.Black)
+            .background(if (wallpaperUrl == null) MaterialTheme.colorScheme.background else Color.Black)
     ) {
         // Smoothly fade in/out the background image if custom wallpaper is active
         AnimatedVisibility(
@@ -140,7 +140,7 @@ fun MockDineInStylePage(
                         ) {
                             Text(
                                 text = "Favorites",
-                                color = if (wallpaperUrl == null) Color.Black else Color.White,
+                                color = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground else Color.White,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -189,13 +189,13 @@ fun MockDineInStylePage(
                             Icon(
                                 imageVector = Icons.Default.Cloud,
                                 contentDescription = "iCloud",
-                                tint = if (wallpaperUrl == null) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f),
+                                tint = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f),
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "iCloud Tabs",
-                                color = if (wallpaperUrl == null) Color.Black else Color.White,
+                                color = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground else Color.White,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -240,13 +240,13 @@ fun MockDineInStylePage(
                                 Icon(
                                     imageVector = Icons.Default.Article,
                                     contentDescription = "News",
-                                    tint = if (wallpaperUrl == null) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f),
+                                    tint = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f),
                                     modifier = Modifier.size(24.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "World News",
-                                    color = if (wallpaperUrl == null) Color.Black else Color.White,
+                                    color = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground else Color.White,
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif
@@ -260,7 +260,7 @@ fun MockDineInStylePage(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Hide News Feed",
-                                    tint = if (wallpaperUrl == null) Color.DarkGray else Color.White.copy(alpha = 0.7f),
+                                    tint = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.7f),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -333,11 +333,11 @@ fun MockDineInStylePage(
                     Button(
                         onClick = { isEditPageOpen = true },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (wallpaperUrl == null) Color.White else Color.White.copy(alpha = 0.25f),
-                            contentColor = if (wallpaperUrl == null) Color(0xFF007AFF) else Color.White
+                            containerColor = if (wallpaperUrl == null) MaterialTheme.colorScheme.surfaceVariant else Color.White.copy(alpha = 0.25f),
+                            contentColor = if (wallpaperUrl == null) MaterialTheme.colorScheme.primary else Color.White
                         ),
                         shape = RoundedCornerShape(24.dp),
-                        border = if (wallpaperUrl == null) BorderStroke(0.5.dp, Color.LightGray) else BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
+                        border = if (wallpaperUrl == null) BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)) else BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                         contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp)
                     ) {
@@ -497,24 +497,24 @@ fun FavoritesGrid(
                                         .aspectRatio(1f)
                                         .fillMaxWidth(0.85f)
                                         .clip(RoundedCornerShape(16.dp))
-                                        .background(if (wallpaperActive) Color.White.copy(alpha = 0.2f) else Color.White)
+                                        .background(if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant)
                                         .border(
                                             width = 0.5.dp,
-                                            color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else Color.LightGray.copy(alpha = 0.5f),
+                                            color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
                                             shape = RoundedCornerShape(16.dp)
                                         )
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "Add Shortcut",
-                                        tint = if (wallpaperActive) Color.White else Color.DarkGray,
+                                        tint = if (wallpaperActive) Color.White else MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = "Add",
-                                    color = if (wallpaperActive) Color.White.copy(alpha = 0.8f) else Color.DarkGray,
+                                    color = if (wallpaperActive) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
@@ -574,10 +574,10 @@ fun FavoriteTileItem(
                 .aspectRatio(1f)
                 .fillMaxWidth(0.85f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(if (wallpaperActive) Color.White.copy(alpha = 0.15f) else Color.White)
+                .background(if (wallpaperActive) Color.White.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
                 .border(
                     width = 0.5.dp,
-                    color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else Color.LightGray.copy(alpha = 0.5f),
+                    color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
                     shape = RoundedCornerShape(16.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -826,7 +826,7 @@ fun FavoriteTileItem(
                 "Thrombocytopenia (lo..." -> "Thrombocy..."
                 else -> shortcut.title
             },
-            color = if (wallpaperActive) Color.White.copy(alpha = 0.9f) else Color.Black.copy(alpha = 0.8f),
+            color = if (wallpaperActive) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
@@ -892,11 +892,11 @@ fun ICloudTabCard(
             },
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (wallpaperActive) Color.White.copy(alpha = 0.15f) else Color.White
+            containerColor = if (wallpaperActive) Color.White.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
         ),
         border = BorderStroke(
             width = 0.5.dp,
-            color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else Color.LightGray.copy(alpha = 0.4f)
+            color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (wallpaperActive) 0.dp else 1.dp)
     ) {
@@ -926,7 +926,7 @@ fun ICloudTabCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = tab.title,
-                    color = if (wallpaperActive) Color.White else Color.Black,
+                    color = if (wallpaperActive) Color.White else MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -935,7 +935,7 @@ fun ICloudTabCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = tab.url,
-                    color = if (wallpaperActive) Color.White.copy(alpha = 0.6f) else Color.Gray,
+                    color = if (wallpaperActive) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Normal
                 )
@@ -944,13 +944,13 @@ fun ICloudTabCard(
                     Icon(
                         imageVector = Icons.Default.Cloud,
                         contentDescription = "Cloud syncd",
-                        tint = if (wallpaperActive) Color.White.copy(alpha = 0.4f) else Color.LightGray,
+                        tint = if (wallpaperActive) Color.White.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         modifier = Modifier.size(12.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "on ${tab.device}",
-                        color = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else Color.Gray.copy(alpha = 0.8f),
+                        color = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Light
                     )
@@ -965,7 +965,7 @@ fun ICloudTabCard(
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Remove card",
-                    tint = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else Color.Gray.copy(alpha = 0.6f),
+                    tint = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -1012,11 +1012,11 @@ fun NewsCard(
             },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (wallpaperActive) Color.Black.copy(alpha = 0.55f) else Color.White
+            containerColor = if (wallpaperActive) Color.Black.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceVariant
         ),
         border = BorderStroke(
             width = 0.5.dp,
-            color = if (wallpaperActive) Color.White.copy(alpha = 0.15f) else Color.LightGray.copy(alpha = 0.4f)
+            color = if (wallpaperActive) Color.White.copy(alpha = 0.15f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
         )
     ) {
         Row(
@@ -1033,27 +1033,27 @@ fun NewsCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = article.publisher,
-                        color = if (wallpaperActive) Color(0xFFD4E157) else Color(0xFF007AFF),
+                        color = if (wallpaperActive) Color(0xFFD4E157) else MaterialTheme.colorScheme.primary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "•",
-                        color = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else Color.Gray,
+                        color = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                         fontSize = 11.sp
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = article.timeAgo,
-                        color = if (wallpaperActive) Color.White.copy(alpha = 0.6f) else Color.Gray,
+                        color = if (wallpaperActive) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         fontSize = 11.sp
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = article.title,
-                    color = if (wallpaperActive) Color.White else Color.Black,
+                    color = if (wallpaperActive) Color.White else MaterialTheme.colorScheme.onSurface,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
@@ -1062,7 +1062,7 @@ fun NewsCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = article.summary,
-                    color = if (wallpaperActive) Color.White.copy(alpha = 0.7f) else Color.DarkGray,
+                    color = if (wallpaperActive) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     fontSize = 12.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis

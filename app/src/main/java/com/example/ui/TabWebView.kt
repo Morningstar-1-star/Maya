@@ -19,7 +19,8 @@ class MediaCaptureInterface(
     private val pageUrlProvider: () -> String,
     private val onCapture: (url: String, type: String, title: String, pageUrl: String) -> Unit,
     private val onLinkLongPress: (url: String, text: String) -> Unit,
-    private val onVideoIconClicked: (url: String, title: String) -> Unit
+    private val onVideoIconClicked: (url: String, title: String) -> Unit,
+    private val onElementLongPress: ((selector: String, html: String) -> Unit)? = null
 ) {
     @android.webkit.JavascriptInterface
     fun onImageFound(url: String) {
@@ -40,6 +41,11 @@ class MediaCaptureInterface(
     fun onVideoIconClicked(url: String, title: String) {
         onVideoIconClicked(url, title)
     }
+
+    @android.webkit.JavascriptInterface
+    fun onElementLongPressed(selector: String, html: String) {
+        onElementLongPress?.invoke(selector, html)
+    }
 }
 
 // Global cache of WebViews per Tab ID to ensure instant switching and state preservation
@@ -53,29 +59,46 @@ object WebViewPool {
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                 )
+                val tabStateProvider = {
+                    viewModel.allTabs.value.find { it.id == tabId }
+                }
                 addJavascriptInterface(
                     MediaCaptureInterface(
-                        pageTitleProvider = { this.title ?: "Website" },
-                        pageUrlProvider = { this.url ?: "" },
+                        pageTitleProvider = { tabStateProvider()?.title ?: "Website" },
+                        pageUrlProvider = { tabStateProvider()?.url ?: "" },
                         onCapture = { url, type, title, pageUrl ->
                             viewModel.captureMedia(url, type, title, pageUrl)
                         },
                         onLinkLongPress = { url, text ->
-                            viewModel.showLinkContextMenu(url, text)
+                            post {
+                                viewModel.showLinkContextMenu(url, text)
+                            }
                         },
                         onVideoIconClicked = { url, title ->
-                            val finalUrl = if (url.isBlank() || url.startsWith("blob:")) {
-                                val lastVid = viewModel.allCapturedMedia.value.lastOrNull { it.type == "video" }
-                                lastVid?.url ?: url
-                            } else {
-                                url
+                            post {
+                                val finalUrl = if (url.isBlank() || url.startsWith("blob:")) {
+                                    val lastVid = viewModel.allCapturedMedia.value.lastOrNull { it.type == "video" }
+                                    lastVid?.url ?: url
+                                } else {
+                                    url
+                                }
+                                if (finalUrl.isNotBlank()) {
+                                    viewModel.setDetectedVideoActionMedia(
+                                        com.example.data.CapturedMedia(
+                                            url = finalUrl,
+                                            type = "video",
+                                            pageTitle = title,
+                                            pageUrl = tabStateProvider()?.url ?: ""
+                                        )
+                                    )
+                                } else {
+                                    android.widget.Toast.makeText(context, "Detecting video stream... Please play the video first", android.widget.Toast.LENGTH_SHORT).show()
+                                }
                             }
-                            if (finalUrl.isNotBlank()) {
-                                viewModel.setUcPlayerVideoUrl(finalUrl)
-                                viewModel.setUcPlayerVideoTitle(title)
-                                viewModel.setUcPlayerActive(true)
-                            } else {
-                                android.widget.Toast.makeText(context, "Detecting video stream... Please play the video first", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onElementLongPress = { selector, html ->
+                            post {
+                                viewModel.showBlockElementConfirm(selector, html)
                             }
                         }
                     ),
@@ -134,6 +157,19 @@ object WebViewPool {
     private fun setupClients(webView: WebView, tabId: Long, viewModel: BrowserViewModel) {
         webView.webViewClient = object : WebViewClient() {
             private fun isAdRequest(urlStr: String): Boolean {
+                val mainUrl = viewModel.allTabs.value.find { it.id == tabId }?.url ?: ""
+                val mainHost = if (mainUrl.isNotEmpty()) {
+                    try {
+                        android.net.Uri.parse(mainUrl).host?.lowercase() ?: ""
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+                if (mainHost.isNotEmpty() && viewModel.isHostWhitelisted(mainHost)) {
+                    return false // Ads are allowed on this page!
+                }
                 return AdBlocker.isAdRequest(urlStr)
             }
 
@@ -152,8 +188,16 @@ object WebViewPool {
                         return true
                     }
                 }
+
+                // 2. Custom Blocked Links
+                if (viewModel.isLinkBlocked(url)) {
+                    view?.post {
+                        viewModel.incrementBlockedAds(tabId)
+                    }
+                    return true
+                }
                 
-                // 2. Prevent ad and redirect host navigation
+                // 3. Prevent ad and redirect host navigation
                 if (viewModel.adBlockerOn.value && isAdRequest(url)) {
                     view?.post {
                         viewModel.incrementBlockedAds(tabId)
@@ -171,6 +215,31 @@ object WebViewPool {
                 val url = request?.url?.toString() ?: return null
                 val adBlockOn = viewModel.adBlockerOn.value
 
+                // 1. Custom Blocked Links
+                if (viewModel.isLinkBlocked(url)) {
+                    view?.post {
+                        viewModel.incrementBlockedAds(tabId)
+                    }
+                    return WebResourceResponse(
+                        "text/plain",
+                        "UTF-8",
+                        ByteArrayInputStream("".toByteArray())
+                    )
+                }
+
+                // 2. Custom Blocked Images Pattern & General Image Block
+                val isImage = url.contains(Regex("\\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\\?.*)?$")) || request?.requestHeaders?.get("Accept")?.contains("image") == true
+                if (isImage) {
+                    if (viewModel.blockedImagesEnabled.value || viewModel.isImageBlocked(url)) {
+                        return WebResourceResponse(
+                            "image/png",
+                            "UTF-8",
+                            ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+                }
+
+                // 3. Ad Blocker
                 if (adBlockOn && isAdRequest(url)) {
                     // Increment count in UI thread safely
                     view?.post {
@@ -233,6 +302,10 @@ object WebViewPool {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                viewModel.recordPageStart(tabId)
+                if (view != null && url != null) {
+                    com.example.ui.CookiePersistence.restoreCookiesForUrl(view.context, url)
+                }
                 viewModel.updateNavigationState(
                     tabId = tabId,
                     canGoBack = view?.canGoBack() ?: false,
@@ -288,6 +361,7 @@ object WebViewPool {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                viewModel.recordPageFinished(tabId)
                 viewModel.updateNavigationState(
                     tabId = tabId,
                     canGoBack = view?.canGoBack() ?: false,
@@ -295,6 +369,132 @@ object WebViewPool {
                 )
                 if (url != null) {
                     viewModel.updateTabTitleAndUrl(tabId, view?.title ?: "Browser Tab", url)
+
+                    // Website Evolution - "What's Changed?"
+                    val bookmark = viewModel.allBookmarks.value.find { it.url == url }
+                    if (bookmark != null && bookmark.isWatchMode) {
+                        val extractScript = """
+                            (function() {
+                                var items = [];
+                                var els = document.querySelectorAll('p, h1, h2, h3, h4, h5, li');
+                                for (var i = 0; i < els.length; i++) {
+                                    var txt = els[i].innerText.trim();
+                                    if (txt.length > 15) {
+                                        items.push(txt);
+                                    }
+                                }
+                                return JSON.stringify(items);
+                            })()
+                        """.trimIndent()
+                        view?.evaluateJavascript(extractScript) { result ->
+                            if (result != null && result != "null" && result.isNotBlank()) {
+                                try {
+                                    val cleanJsonStr = if (result.startsWith("\"") && result.endsWith("\"") && result.length > 2) {
+                                        org.json.JSONTokener(result).nextValue() as String
+                                    } else {
+                                        result
+                                    }
+                                    val jsonArray = org.json.JSONArray(cleanJsonStr)
+                                    val hashes = mutableListOf<String>()
+                                    for (i in 0 until jsonArray.length()) {
+                                        val txt = jsonArray.getString(i)
+                                        hashes.add(txt.hashCode().toString())
+                                    }
+
+                                    val savedHashesJson = bookmark.lastTextHash
+                                    if (savedHashesJson.isNullOrBlank()) {
+                                        val jsonStr = org.json.JSONArray(hashes).toString()
+                                        viewModel.updateBookmarkTextHash(url, jsonStr)
+                                    } else {
+                                        val savedArray = org.json.JSONArray(savedHashesJson)
+                                        val savedSet = mutableSetOf<String>()
+                                        for (i in 0 until savedArray.length()) {
+                                            savedSet.add(savedArray.getString(i))
+                                        }
+
+                                        val newIndices = mutableListOf<Int>()
+                                        for (i in 0 until hashes.size) {
+                                            if (!savedSet.contains(hashes[i])) {
+                                                newIndices.add(i)
+                                            }
+                                        }
+
+                                        if (newIndices.isNotEmpty()) {
+                                            val indexArrayStr = newIndices.joinToString(",")
+                                            val highlightScript = """
+                                                (function() {
+                                                    var indices = [$indexArrayStr];
+                                                    var els = document.querySelectorAll('p, h1, h2, h3, h4, h5, li');
+                                                    var count = 0;
+                                                    var actualIdx = 0;
+                                                    for (var i = 0; i < els.length; i++) {
+                                                        var txt = els[i].innerText.trim();
+                                                        if (txt.length > 15) {
+                                                            if (indices.indexOf(actualIdx) !== -1) {
+                                                                els[i].style.backgroundColor = '#d1fae5';
+                                                                els[i].style.borderLeft = '4px solid #10b981';
+                                                                els[i].style.paddingLeft = '8px';
+                                                                els[i].style.transition = 'all 0.5s ease';
+                                                                count++;
+                                                            }
+                                                            actualIdx++;
+                                                        }
+                                                    }
+                                                    return count;
+                                                })()
+                                            """.trimIndent()
+                                            view?.evaluateJavascript(highlightScript) { countResult ->
+                                                val highlightedCount = countResult?.toIntOrNull() ?: 0
+                                                if (highlightedCount > 0) {
+                                                    viewModel.setWebsiteEvolutionAlert(url, highlightedCount)
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Inject Copy Unblocker if active for this URL
+                if (viewModel.isCopyUnblockActiveForUrl(url)) {
+                    val unblockScript = """
+                        (function() {
+                            try {
+                                if (!document.getElementById('enable-copy-unblock-styles')) {
+                                    var style = document.createElement('style');
+                                    style.id = 'enable-copy-unblock-styles';
+                                    style.innerHTML = '* { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }';
+                                    document.head.appendChild(style);
+                                }
+                                var eventsToBypass = ['contextmenu', 'copy', 'cut', 'paste', 'selectstart', 'dragstart'];
+                                eventsToBypass.forEach(function(eventName) {
+                                    document.addEventListener(eventName, function(e) {
+                                        e.stopPropagation();
+                                    }, true);
+                                });
+                                function clearBlockers() {
+                                    var targets = [document, document.body, document.documentElement];
+                                    var inlineHandlers = ['oncontextmenu', 'oncopy', 'oncut', 'onpaste', 'onselectstart', 'ondragstart'];
+                                    targets.forEach(function(target) {
+                                        if (target) {
+                                            inlineHandlers.forEach(function(handler) {
+                                                if (target[handler] !== null) {
+                                                    target[handler] = null;
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
+                                clearBlockers();
+                                setInterval(clearBlockers, 2000);
+                            } catch (e) {}
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(unblockScript, null)
                 }
 
                 // Evaluate enabled User Scripts
@@ -313,6 +513,198 @@ object WebViewPool {
                             view?.evaluateJavascript(script.code, null)
                         }
                     }
+                }
+
+                // Theme Color Extraction
+                val themeColorScript = """
+                    (function() {
+                        var meta = document.querySelector('meta[name="theme-color"]');
+                        if (meta && meta.content) {
+                            return meta.content;
+                        }
+                        var bg = window.getComputedStyle(document.body).backgroundColor;
+                        return bg;
+                    })()
+                """.trimIndent()
+                view?.evaluateJavascript(themeColorScript) { result ->
+                    if (result != null && result != "null" && result.isNotBlank()) {
+                        viewModel.updateWebsiteThemeColor(result)
+                    }
+                }
+
+                // Inject Reality Filters
+                val clickbait = viewModel.realityClickbaitFilter.value
+                val sponsored = viewModel.realitySponsoredBlock.value
+                val aiBadge = viewModel.realityAiBadge.value
+                if (clickbait || sponsored || aiBadge) {
+                    val realityFiltersScript = """
+                        (function() {
+                            // 1. Clickbait Filter
+                            if ($clickbait) {
+                                const clickbaitWords = ['you won\\\'t believe', 'shocking truth', 'secret to', 'what happens next', 'will blow your mind', 'this is why', 'destroy your', 'ultimate guide to'];
+                                document.querySelectorAll('a, h1, h2, h3, h4, h5, p, span').forEach(el => {
+                                    const text = el.innerText ? el.innerText.toLowerCase() : '';
+                                    if (clickbaitWords.some(word => text.includes(word))) {
+                                        el.style.opacity = '0.15';
+                                        el.style.transition = 'opacity 0.5s';
+                                        el.title = 'Clickbait filter minimized this element';
+                                        el.addEventListener('mouseover', () => el.style.opacity = '1');
+                                        el.addEventListener('mouseout', () => el.style.opacity = '0.15');
+                                    }
+                                });
+                            }
+
+                            // 2. Sponsored Content Blocker
+                            if ($sponsored) {
+                                const sponsoredSelectors = [
+                                    '.sponsored-post', '.promoted-content', '[class*="sponsored" i]', '[id*="sponsored" i]',
+                                    '[class*="promoted" i]', '[id*="promoted" i]', '[class*="advertisement" i]', '[id*="advertisement" i]'
+                                ];
+                                sponsoredSelectors.forEach(selector => {
+                                    try {
+                                        document.querySelectorAll(selector).forEach(el => {
+                                            el.style.display = 'none';
+                                        });
+                                    } catch(e) {}
+                                });
+                                document.querySelectorAll('span, div, p, a').forEach(el => {
+                                    if (el.innerText && (el.innerText === 'Sponsored' || el.innerText === 'Promoted' || el.innerText === 'Advertisement')) {
+                                        let parent = el.parentElement;
+                                        if (parent) {
+                                            parent.style.opacity = '0.1';
+                                            parent.style.transition = 'opacity 0.3s';
+                                        }
+                                    }
+                                });
+                            }
+
+                            // 3. AI-Generated Badge Finder
+                            if ($aiBadge) {
+                                const aiPhrases = ['as an ai language model', 'it is important to remember', 'dive deep into', 'delve into', 'testament to', 'not only... but also', 'it is worth noting'];
+                                let score = 0;
+                                const text = document.body ? document.body.innerText.toLowerCase() : '';
+                                aiPhrases.forEach(phrase => {
+                                    if (text.includes(phrase)) score++;
+                                });
+                                if (score >= 2 && !document.getElementById('ai-detection-badge')) {
+                                    const badge = document.createElement('div');
+                                    badge.id = 'ai-detection-badge';
+                                    badge.innerHTML = '🤖 Potential AI Content Detected';
+                                    badge.style.position = 'fixed';
+                                    badge.style.top = '10px';
+                                    badge.style.right = '10px';
+                                    badge.style.backgroundColor = '#6366F1';
+                                    badge.style.color = 'white';
+                                    badge.style.padding = '6px 12px';
+                                    badge.style.borderRadius = '20px';
+                                    badge.style.fontSize = '12px';
+                                    badge.style.fontWeight = 'bold';
+                                    badge.style.zIndex = '999999';
+                                    badge.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+                                    badge.style.cursor = 'pointer';
+                                    badge.onclick = function() { badge.remove(); };
+                                    document.body.appendChild(badge);
+                                }
+                            }
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(realityFiltersScript, null)
+                }
+
+                // Inject custom de-clutter keyword spoiler filter
+                val deClutterKeywords = viewModel.customDeClutterKeywords.value
+                if (deClutterKeywords.isNotEmpty()) {
+                    val keywordsArrayJson = org.json.JSONArray(deClutterKeywords).toString()
+                    val declutterScript = """
+                        (function() {
+                            var keywords = $keywordsArrayJson;
+                            var targets = document.querySelectorAll('div, p, article, section, h1, h2, h3, h4, h5, li, a');
+                            targets.forEach(function(el) {
+                                var text = el.innerText ? el.innerText.toLowerCase() : '';
+                                if (keywords.some(function(word) { return text.includes(word); })) {
+                                    el.style.display = 'none';
+                                }
+                            });
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(declutterScript, null)
+                }
+
+                // Inject custom blocked elements selectors
+                val customSelectors = viewModel.customBlockedElements.value
+                if (customSelectors.isNotEmpty()) {
+                    val selectorsList = customSelectors.joinToString(", ")
+                    val customSelectorsScript = """
+                        (function() {
+                            try {
+                                if (!document.getElementById('cleaner-custom-style')) {
+                                    var style = document.createElement('style');
+                                    style.id = 'cleaner-custom-style';
+                                    style.innerHTML = `${selectorsList.replace("`", "\\`")} { display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important; opacity: 0 !important; pointer-events: none !important; }`;
+                                    document.head.appendChild(style);
+                                }
+                            } catch(e) {}
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(customSelectorsScript, null)
+                }
+
+                // Inject block area listeners
+                val blockAreaEnabled = viewModel.blockAreaEnabled.value
+                if (blockAreaEnabled) {
+                    val blockAreaScript = """
+                        (function() {
+                            function getUniqueSelector(el) {
+                                if (!el) return "";
+                                if (el.id) return '#' + el.id;
+                                var path = [];
+                                while (el && el.nodeType === Node.ELEMENT_NODE) {
+                                    var selector = el.nodeName.toLowerCase();
+                                    if (el.className) {
+                                        var classes = el.className.trim().split(/\s+/).filter(function(c) { return c.length > 0; });
+                                        if (classes.length > 0) {
+                                            selector += '.' + classes.join('.');
+                                        }
+                                    }
+                                    var sibling = el;
+                                    var nth = 1;
+                                    while (sibling = sibling.previousElementSibling) {
+                                        if (sibling.nodeName.toLowerCase() === el.nodeName.toLowerCase()) {
+                                            nth++;
+                                        }
+                                    }
+                                    if (nth > 1) {
+                                        selector += ':nth-of-type(' + nth + ')';
+                                    }
+                                    path.unshift(selector);
+                                    el = el.parentNode;
+                                }
+                                return path.join(' > ');
+                            }
+
+                            if (window.blockAreaListenerInjected === undefined) {
+                                window.blockAreaListenerInjected = true;
+                                window.addEventListener('contextmenu', function(e) {
+                                    var el = e.target;
+                                    if (el) {
+                                        var linkEl = el;
+                                        while (linkEl && linkEl.tagName !== 'A') {
+                                            linkEl = linkEl.parentNode;
+                                        }
+                                        if (linkEl && linkEl.tagName === 'A') {
+                                            return;
+                                        }
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        var selector = getUniqueSelector(el);
+                                        var html = el.outerHTML ? el.outerHTML.substring(0, 500) : "";
+                                        window.MediaCaptureInterface.onElementLongPressed(selector, html);
+                                    }
+                                }, { capture: true });
+                            }
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(blockAreaScript, null)
                 }
 
                 val adBlockOn = viewModel.adBlockerOn.value
@@ -628,12 +1020,50 @@ object WebViewPool {
                 isUserGesture: Boolean,
                 resultMsg: android.os.Message?
             ): Boolean {
-                if (viewModel.adBlockerOn.value) {
+                val host = view?.url?.let { android.net.Uri.parse(it).host?.lowercase() } ?: ""
+                if (viewModel.isPopupWhitelisted(host)) {
+                    return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+                }
+
+                val mode = viewModel.popupBlockerMode.value
+                if (mode == "strong") {
+                    return true // Block all popups!
+                } else if (mode == "weak") {
                     if (!isUserGesture) {
                         return true // Intercept and block non-user-initiated popups!
                     }
                 }
                 return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+            }
+        }
+
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+            try {
+                val context = webView.context
+                val filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "downloaded_file"
+                val uri = android.net.Uri.parse(url)
+                val request = android.app.DownloadManager.Request(uri).apply {
+                    setMimeType(mimetype)
+                    addRequestHeader("User-Agent", userAgent)
+                    val cookie = android.webkit.CookieManager.getInstance().getCookie(url)
+                    if (cookie != null) {
+                        addRequestHeader("Cookie", cookie)
+                    }
+                    setDescription("Downloading with extreme high-speed boost...")
+                    setTitle(filename)
+                    setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(
+                        android.os.Environment.DIRECTORY_DOWNLOADS,
+                        filename
+                    )
+                    setAllowedOverMetered(true)
+                    setAllowedOverRoaming(true)
+                }
+                val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                manager.enqueue(request)
+                android.widget.Toast.makeText(context, "Boosted download started: $filename", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(webView.context, "Download failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -655,6 +1085,30 @@ fun TabWebView(
     val forceDarkWebpages by viewModel.forceDarkWebpages.collectAsState()
     val webTextZoom by viewModel.webTextZoom.collectAsState()
     val hideDistractingItems by viewModel.hideDistractingItems.collectAsState()
+    val loadingProgressMap by viewModel.loadingProgressMap.collectAsState()
+    val progress = remember(loadingProgressMap, tabId) { loadingProgressMap[tabId] ?: 100 }
+
+    val currentDomain = remember(url) {
+        try {
+            val uri = java.net.URI(url)
+            val host = uri.host ?: ""
+            if (host.startsWith("www.")) host.substring(4) else host
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    val siteZoom = if (currentDomain.isNotBlank() && viewModel.getSiteZoom(currentDomain) != 1.0f) {
+        viewModel.getSiteZoom(currentDomain)
+    } else {
+        webZoomLevel
+    }
+
+    val siteForceDark = if (currentDomain.isNotBlank() && viewModel.getSiteForceDark(currentDomain)) {
+        true
+    } else {
+        forceDarkWebpages
+    }
 
     // Load URL if the web view's URL is empty or is different from the target
     LaunchedEffect(url) {
@@ -666,15 +1120,31 @@ fun TabWebView(
         }
     }
 
-    AndroidView(
-        factory = { webView },
-        modifier = modifier.fillMaxSize(),
-        update = { view ->
-            // 1. Text zoom
-            view.settings.textZoom = (webTextZoom * 100).toInt()
+    androidx.compose.runtime.key(tabId) {
+        AndroidView(
+            factory = { ctx ->
+                androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    (webView.parent as? android.view.ViewGroup)?.removeView(webView)
+                    addView(webView)
+                    setOnRefreshListener {
+                        webView.reload()
+                    }
+                }
+            },
+            modifier = modifier.fillMaxSize(),
+            update = { swipeRefreshLayout ->
+                swipeRefreshLayout.isRefreshing = progress < 100
+
+                val view = webView
+                // 1. Text zoom
+                view.settings.textZoom = (webTextZoom * 100).toInt()
             
             // 2. Force Dark Mode for Webpages via CSS injection
-            val darkScript = if (forceDarkWebpages) {
+            val darkScript = if (siteForceDark) {
                 """
                 (function() {
                     if (!document.getElementById('force-dark-style')) {
@@ -706,7 +1176,7 @@ fun TabWebView(
             // 3. Page Zoom Level via CSS body style injection
             val zoomScript = """
                 (function() {
-                    document.body.style.zoom = "$webZoomLevel";
+                    document.body.style.zoom = "$siteZoom";
                 })()
             """.trimIndent()
             view.evaluateJavascript(zoomScript, null)
@@ -743,4 +1213,5 @@ fun TabWebView(
             view.evaluateJavascript(distractScript, null)
         }
     )
+}
 }

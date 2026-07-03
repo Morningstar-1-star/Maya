@@ -62,6 +62,12 @@ interface BrowserDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(bookmark: Bookmark)
 
+    @Update
+    suspend fun updateBookmark(bookmark: Bookmark)
+
+    @Query("SELECT * FROM bookmarks WHERE url = :url LIMIT 1")
+    suspend fun getBookmarkByUrl(url: String): Bookmark?
+
     @Query("DELETE FROM bookmarks WHERE id = :id")
     suspend fun deleteBookmarkById(id: Long)
 
@@ -70,6 +76,9 @@ interface BrowserDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM bookmarks WHERE url = :url LIMIT 1)")
     suspend fun isBookmarked(url: String): Boolean
+
+    @Query("DELETE FROM bookmarks")
+    suspend fun clearAllBookmarks()
 
     // --- Homepage Shortcuts Management ---
     @Query("SELECT * FROM homepage_shortcuts ORDER BY timestamp ASC")
@@ -118,4 +127,20 @@ interface BrowserDao {
 
     @Query("DELETE FROM user_scripts WHERE id = :id")
     suspend fun deleteUserScriptById(id: Long)
+
+    // --- Downloads Management ---
+    @Query("SELECT * FROM download_entries ORDER BY timestamp DESC")
+    fun getAllDownloads(): Flow<List<DownloadEntry>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDownload(download: DownloadEntry): Long
+
+    @Update
+    suspend fun updateDownload(download: DownloadEntry)
+
+    @Query("DELETE FROM download_entries WHERE id = :id")
+    suspend fun deleteDownloadById(id: Long)
+
+    @Query("DELETE FROM download_entries")
+    suspend fun clearAllDownloads()
 }

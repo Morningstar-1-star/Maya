@@ -17,6 +17,28 @@ object AdBlocker {
     
     // In-memory cache for full URL lookups to avoid regex/parsing overhead on every asset request
     private val decisionCache = ConcurrentHashMap<String, Boolean>()
+
+    // Whitelist for domains where ads are allowed
+    private val adWhitelist = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    fun setAdWhitelist(hosts: Set<String>) {
+        adWhitelist.clear()
+        adWhitelist.addAll(hosts.map { it.lowercase().trim() })
+        decisionCache.clear()
+    }
+
+    fun isHostWhitelisted(host: String): Boolean {
+        var tempHost = host.lowercase().trim()
+        while (tempHost.contains(".")) {
+            if (adWhitelist.contains(tempHost)) {
+                return true
+            }
+            tempHost = tempHost.substringAfter(".", "")
+            if (tempHost.isEmpty()) break
+        }
+        return false
+    }
+
     
     // Fallback static list of very common ad and tracking domains
     private val fallbackAdHosts = setOf(
@@ -60,6 +82,8 @@ object AdBlocker {
     )
 
     private var isInitialized = false
+    @Volatile
+    private var isUpdating = false
 
     fun initialize(context: Context) {
         if (isInitialized) return
@@ -68,11 +92,18 @@ object AdBlocker {
         // Load fallback rules immediately so the app has ad-blocking capabilities on first launch
         blockedHosts.addAll(fallbackAdHosts)
 
-        // Load locally cached hosts if they exist
+        // Load locally cached hosts if they exist (fast & offline)
         CoroutineScope(Dispatchers.IO).launch {
             loadCachedHosts(context)
-            // Trigger automatic updates in background
-            updateFilterLists(context)
+            // Trigger background update ONLY if cached hosts are missing or empty
+            val cacheFile = File(context.filesDir, "blocked_hosts.txt")
+            if (!cacheFile.exists() || cacheFile.length() == 0L || blockedHosts.size <= fallbackAdHosts.size) {
+                Log.d(TAG, "Cache empty on startup. Fetching default filters in background...")
+                updateFilterLists(context, listOf(
+                    "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+                    "https://small.oisd.nl"
+                ))
+            }
         }
     }
 
@@ -80,80 +111,117 @@ object AdBlocker {
         try {
             val cacheFile = File(context.filesDir, "blocked_hosts.txt")
             if (cacheFile.exists()) {
-                val hosts = cacheFile.readLines()
-                    .map { it.trim().lowercase() }
-                    .filter { it.isNotEmpty() && !it.startsWith("#") }
-                if (hosts.isNotEmpty()) {
-                    blockedHosts.addAll(hosts)
-                    Log.d(TAG, "Loaded ${hosts.size} cached hosts from local storage.")
+                cacheFile.bufferedReader().useLines { lines ->
+                    val hosts = lines
+                        .map { it.trim().lowercase() }
+                        .filter { it.isNotEmpty() && !it.startsWith("#") }
+                        .toSet()
+                    if (hosts.isNotEmpty()) {
+                        blockedHosts.addAll(hosts)
+                        Log.d(TAG, "Loaded ${hosts.size} cached hosts from local storage.")
+                    }
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading cached hosts: ${e.message}")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error loading cached hosts: ${t.message}")
         }
     }
 
     private fun saveCachedHosts(context: Context, hosts: Set<String>) {
         try {
             val cacheFile = File(context.filesDir, "blocked_hosts.txt")
-            cacheFile.writeText(hosts.joinToString("\n"))
+            cacheFile.bufferedWriter().use { writer ->
+                for (host in hosts) {
+                    writer.write(host)
+                    writer.newLine()
+                }
+            }
             Log.d(TAG, "Successfully saved ${hosts.size} hosts to local storage.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saving cached hosts: ${e.message}")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error saving cached hosts: ${t.message}")
         }
     }
 
     // Downloads and parses StevenBlack/OISD hosts format asynchronously
-    fun updateFilterLists(context: Context) {
+    fun updateFilterLists(context: Context, urls: List<String> = emptyList()) {
+        if (urls.isEmpty()) return
         CoroutineScope(Dispatchers.IO).launch {
-            val urls = listOf(
-                "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", // StevenBlack hosts
-                "https://small.oisd.nl" // OISD small list
-            )
-            val newHosts = HashSet<String>()
-            newHosts.addAll(fallbackAdHosts) // Keep fallbacks
+            synchronized(this@AdBlocker) {
+                if (isUpdating) {
+                    Log.d(TAG, "Filter list update is already in progress. Skipping duplicate request.")
+                    return@launch
+                }
+                isUpdating = true
+            }
 
-            for (urlString in urls) {
-                try {
-                    Log.d(TAG, "Downloading filter list: $urlString")
-                    val url = URL(urlString)
-                    val connection = url.openConnection()
-                    connection.connectTimeout = 5000
-                    connection.readTimeout = 5000
-                    
-                    connection.getInputStream().bufferedReader().useLines { lines ->
-                        for (line in lines) {
-                            val trimmed = line.trim()
-                            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!")) {
-                                continue
-                            }
-                            // Formats like "0.0.0.0 domain.com" or "127.0.0.1 domain.com" or just "domain.com"
-                            val parts = trimmed.split(Regex("\\s+"))
-                            if (parts.size >= 2) {
-                                val host = parts[1].trim().lowercase()
-                                if (host != "localhost" && host != "127.0.0.1" && host.isNotEmpty()) {
-                                    newHosts.add(host)
+            try {
+                val newHosts = HashSet<String>()
+                newHosts.addAll(fallbackAdHosts) // Keep fallbacks
+
+                for (urlString in urls) {
+                    if (urlString.isBlank()) continue
+                    try {
+                        Log.d(TAG, "Downloading filter list: $urlString")
+                        val url = URL(urlString)
+                        val connection = url.openConnection()
+                        connection.connectTimeout = 10000
+                        connection.readTimeout = 10000
+                        
+                        connection.getInputStream().bufferedReader().useLines { lines ->
+                            for (line in lines) {
+                                val trimmed = line.trim()
+                                if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!")) {
+                                    continue
                                 }
-                            } else if (parts.size == 1) {
-                                val host = parts[0].trim().lowercase()
-                                if (host.isNotEmpty()) {
-                                    newHosts.add(host)
+                                
+                                // Elegant custom parsing for EasyList / ABP rules (starts with ||, ends with ^)
+                                if (trimmed.startsWith("||") && trimmed.contains("^")) {
+                                    val caretIndex = trimmed.indexOf('^')
+                                    if (caretIndex > 2) {
+                                        val domain = trimmed.substring(2, caretIndex).trim().lowercase()
+                                        if (domain.isNotEmpty() && !domain.contains("/") && !domain.contains("*") && domain.contains(".")) {
+                                            newHosts.add(domain)
+                                        }
+                                    }
+                                    continue
+                                }
+                                
+                                // High-performance parsing of standard hosts files without heavy regex splits
+                                val firstSpace = trimmed.indexOfAny(charArrayOf(' ', '\t'))
+                                if (firstSpace != -1) {
+                                    val host = trimmed.substring(firstSpace).trim().lowercase()
+                                    if (host.isNotEmpty() && !host.contains(" ") && !host.contains("\t") && !host.contains("#") && host.contains(".")) {
+                                        if (host != "localhost" && host != "127.0.0.1" && host != "broadcasthost") {
+                                            newHosts.add(host)
+                                        }
+                                    }
+                                } else {
+                                    val host = trimmed.lowercase()
+                                    if (host.isNotEmpty() && !host.contains("/") && !host.contains("*") && host.contains(".")) {
+                                        newHosts.add(host)
+                                    }
                                 }
                             }
                         }
+                        Log.d(TAG, "Successfully parsed filter list: $urlString")
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Failed to update filter list from $urlString: ${t.message}")
                     }
-                    Log.d(TAG, "Successfully parsed filter list: $urlString")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update filter list from $urlString: ${e.message}")
                 }
-            }
 
-            if (newHosts.size > fallbackAdHosts.size) {
-                blockedHosts.clear()
-                blockedHosts.addAll(newHosts)
-                decisionCache.clear()
-                saveCachedHosts(context, newHosts)
-                Log.d(TAG, "Total active blocked hosts count: ${blockedHosts.size}")
+                if (newHosts.size > fallbackAdHosts.size) {
+                    blockedHosts.clear()
+                    blockedHosts.addAll(newHosts)
+                    decisionCache.clear()
+                    saveCachedHosts(context, newHosts)
+                    Log.d(TAG, "Total active blocked hosts count updated to: ${blockedHosts.size}")
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Fatal error in updateFilterLists: ${t.message}")
+            } finally {
+                synchronized(this@AdBlocker) {
+                    isUpdating = false
+                }
             }
         }
     }
@@ -170,6 +238,11 @@ object AdBlocker {
         } ?: return false
 
         val host = uri.host?.lowercase() ?: ""
+
+        if (isHostWhitelisted(host)) {
+            decisionCache[urlStr] = false
+            return false
+        }
 
         // Exempt critical local / home or search query domains
         if (host.isEmpty() || host == "localhost" || host == "127.0.0.1" || 

@@ -19,6 +19,12 @@ import android.content.Context
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+enum class TabLayoutStyle {
+    CAROUSEL,
+    GRID,
+    STACKED
+}
+
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: BrowserRepository
@@ -31,6 +37,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val allCapturedMedia: StateFlow<List<CapturedMedia>>
     val likedSavedMedia: StateFlow<List<CapturedMedia>>
     val allUserScripts: StateFlow<List<UserScript>>
+    val allDownloads: StateFlow<List<com.example.data.DownloadEntry>>
 
     // Custom Wallpaper State
     private val prefs = application.getSharedPreferences("browser_settings", Context.MODE_PRIVATE)
@@ -45,6 +52,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _activeTabId = MutableStateFlow<Long?>(null)
     val activeTabId: StateFlow<Long?> = _activeTabId.asStateFlow()
 
+    // Sensitive tab lock states
+    private val _unlockedTabIds = MutableStateFlow<Set<Long>>(emptySet())
+    val unlockedTabIds: StateFlow<Set<Long>> = _unlockedTabIds.asStateFlow()
+
+    // Page loading duration states for Resource Inspector
+    private val pageStartTimes = mutableMapOf<Long, Long>()
+    private val _pageLoadTimes = MutableStateFlow<Map<Long, Long>>(emptyMap())
+    val pageLoadTimes: StateFlow<Map<Long, Long>> = _pageLoadTimes.asStateFlow()
+
+    // Custom spoiler/de-clutter keywords
+    private val _customDeClutterKeywords = MutableStateFlow<List<String>>(
+        prefs.getString("de_clutter_keywords", "spoiler,politics,celebrity")
+            ?.split(",")?.filter { it.isNotBlank() } ?: listOf("spoiler", "politics", "celebrity")
+    )
+    val customDeClutterKeywords: StateFlow<List<String>> = _customDeClutterKeywords.asStateFlow()
+
     private val _currentUrlInput = MutableStateFlow("")
     val currentUrlInput: StateFlow<String> = _currentUrlInput.asStateFlow()
 
@@ -56,8 +79,70 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private var suggestionsJob: kotlinx.coroutines.Job? = null
 
-    private val _adBlockerOn = MutableStateFlow(true)
+    private val _adBlockerOn = MutableStateFlow(prefs.getBoolean("ad_blocker_enabled", true))
     val adBlockerOn: StateFlow<Boolean> = _adBlockerOn.asStateFlow()
+
+    // --- Web Cleaner Settings ---
+    private val _elementInspectionEnabled = MutableStateFlow(prefs.getBoolean("element_inspection_enabled", false))
+    val elementInspectionEnabled: StateFlow<Boolean> = _elementInspectionEnabled.asStateFlow()
+
+    private val _blockAreaEnabled = MutableStateFlow(prefs.getBoolean("block_area_enabled", true))
+    val blockAreaEnabled: StateFlow<Boolean> = _blockAreaEnabled.asStateFlow()
+
+    private val _overlayBlockerEnabled = MutableStateFlow(prefs.getBoolean("overlay_blocker_enabled", false))
+    val overlayBlockerEnabled: StateFlow<Boolean> = _overlayBlockerEnabled.asStateFlow()
+
+    private val _popupBlockerMode = MutableStateFlow(prefs.getString("popup_blocker_mode", "weak") ?: "weak")
+    val popupBlockerMode: StateFlow<String> = _popupBlockerMode.asStateFlow()
+
+    private val _blockAppExecutionEnabled = MutableStateFlow(prefs.getBoolean("block_app_execution_enabled", true))
+    val blockAppExecutionEnabled: StateFlow<Boolean> = _blockAppExecutionEnabled.asStateFlow()
+
+    private val _lockScreenEnabled = MutableStateFlow(prefs.getBoolean("lock_screen_enabled", false))
+    val lockScreenEnabled: StateFlow<Boolean> = _lockScreenEnabled.asStateFlow()
+
+    private val _blockedImagesEnabled = MutableStateFlow(prefs.getBoolean("blocked_images_enabled", false))
+    val blockedImagesEnabled: StateFlow<Boolean> = _blockedImagesEnabled.asStateFlow()
+
+    // Whitelists & Blocked lists (persistent)
+    private val _adWhitelist = MutableStateFlow(prefs.getStringSet("ad_whitelist", emptySet()) ?: emptySet())
+    val adWhitelist: StateFlow<Set<String>> = _adWhitelist.asStateFlow()
+
+    private val _overlayWhitelist = MutableStateFlow(prefs.getStringSet("overlay_whitelist", emptySet()) ?: emptySet())
+    val overlayWhitelist: StateFlow<Set<String>> = _overlayWhitelist.asStateFlow()
+
+    private val _popupWhitelist = MutableStateFlow(prefs.getStringSet("popup_whitelist", emptySet()) ?: emptySet())
+    val popupWhitelist: StateFlow<Set<String>> = _popupWhitelist.asStateFlow()
+
+    private val _blockedLinks = MutableStateFlow(prefs.getStringSet("blocked_links", emptySet()) ?: emptySet())
+    val blockedLinks: StateFlow<Set<String>> = _blockedLinks.asStateFlow()
+
+    private val _blockedImages = MutableStateFlow(prefs.getStringSet("blocked_images", emptySet()) ?: emptySet())
+    val blockedImages: StateFlow<Set<String>> = _blockedImages.asStateFlow()
+
+    private val _customBlockedElements = MutableStateFlow(prefs.getStringSet("custom_blocked_elements", emptySet()) ?: emptySet())
+    val customBlockedElements: StateFlow<Set<String>> = _customBlockedElements.asStateFlow()
+
+    private val _adFilters = MutableStateFlow<List<com.example.data.AdFilterSubscription>>(emptyList())
+    val adFilters: StateFlow<List<com.example.data.AdFilterSubscription>> = _adFilters.asStateFlow()
+
+    // Element Block Confirm Dialog State
+    private val _pendingBlockElementSelector = MutableStateFlow<String?>(null)
+    val pendingBlockElementSelector: StateFlow<String?> = _pendingBlockElementSelector.asStateFlow()
+
+    private val _pendingBlockElementHtml = MutableStateFlow<String?>(null)
+    val pendingBlockElementHtml: StateFlow<String?> = _pendingBlockElementHtml.asStateFlow()
+
+    fun showBlockElementConfirm(selector: String, html: String) {
+        _pendingBlockElementSelector.value = selector
+        _pendingBlockElementHtml.value = html
+    }
+
+    fun dismissBlockElementConfirm() {
+        _pendingBlockElementSelector.value = null
+        _pendingBlockElementHtml.value = null
+    }
+
 
     // Custom DNS Settings State
     private val _dnsEnabled = MutableStateFlow<Boolean>(prefs.getBoolean("dns_enabled", false))
@@ -138,6 +223,25 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _ucPlayerVideoTitle = MutableStateFlow("")
     val ucPlayerVideoTitle: StateFlow<String> = _ucPlayerVideoTitle.asStateFlow()
 
+    private val _detectedVideoActionMedia = MutableStateFlow<CapturedMedia?>(null)
+    val detectedVideoActionMedia: StateFlow<CapturedMedia?> = _detectedVideoActionMedia.asStateFlow()
+
+    fun setDetectedVideoActionMedia(media: CapturedMedia?) {
+        _detectedVideoActionMedia.value = media
+    }
+
+    // Background Player & Video Queue states
+    private var backgroundMediaPlayer: android.media.MediaPlayer? = null
+
+    private val _backgroundVideo = MutableStateFlow<CapturedMedia?>(null)
+    val backgroundVideo: StateFlow<CapturedMedia?> = _backgroundVideo.asStateFlow()
+
+    private val _isBackgroundVideoPlaying = MutableStateFlow(false)
+    val isBackgroundVideoPlaying: StateFlow<Boolean> = _isBackgroundVideoPlaying.asStateFlow()
+
+    private val _videoQueue = MutableStateFlow<List<CapturedMedia>>(emptyList())
+    val videoQueue: StateFlow<List<CapturedMedia>> = _videoQueue.asStateFlow()
+
     // Privacy Guard States
     private val _alwaysUseHttps = MutableStateFlow(prefs.getBoolean("always_use_https", true))
     val alwaysUseHttps: StateFlow<Boolean> = _alwaysUseHttps.asStateFlow()
@@ -206,6 +310,83 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val _jsOptimisationAndSecurity = MutableStateFlow(prefs.getBoolean("js_optimisation_and_security", true))
     val jsOptimisationAndSecurity: StateFlow<Boolean> = _jsOptimisationAndSecurity.asStateFlow()
+
+    private val _performanceEngineEnabled = MutableStateFlow(prefs.getBoolean("performance_engine_enabled", false))
+    val performanceEngineEnabled: StateFlow<Boolean> = _performanceEngineEnabled.asStateFlow()
+
+    private val _v8JitMode = MutableStateFlow(prefs.getString("v8_jit_mode", "TurboFan (Full JIT)") ?: "TurboFan (Full JIT)")
+    val v8JitMode: StateFlow<String> = _v8JitMode.asStateFlow()
+
+    private val _v8OptimizationFlags = MutableStateFlow<Set<String>>(prefs.getStringSet("v8_optimization_flags", setOf("Ignition", "Sparkplug", "TurboFan", "Concurrent JIT", "Memory Reduction")) ?: setOf("Ignition", "Sparkplug", "TurboFan", "Concurrent JIT", "Memory Reduction"))
+    val v8OptimizationFlags: StateFlow<Set<String>> = _v8OptimizationFlags.asStateFlow()
+
+    private val _jsOptExceptions = MutableStateFlow<Set<String>>(prefs.getStringSet("js_opt_exceptions", emptySet()) ?: emptySet())
+    val jsOptExceptions: StateFlow<Set<String>> = _jsOptExceptions.asStateFlow()
+
+    private val _autofillEnabled = MutableStateFlow(prefs.getBoolean("autofill_enabled", true))
+    val autofillEnabled: StateFlow<Boolean> = _autofillEnabled.asStateFlow()
+
+    private val _autoClearMode = MutableStateFlow(prefs.getString("auto_clear_mode", "Never") ?: "Never")
+    val autoClearMode: StateFlow<String> = _autoClearMode.asStateFlow()
+
+    private val _savedPasswords = MutableStateFlow<List<SavedPassword>>(emptyList())
+    val savedPasswords: StateFlow<List<SavedPassword>> = _savedPasswords.asStateFlow()
+
+    fun addJsOptException(domain: String) {
+        val updated = _jsOptExceptions.value.toMutableSet()
+        updated.add(domain)
+        _jsOptExceptions.value = updated
+        prefs.edit().putStringSet("js_opt_exceptions", updated).apply()
+    }
+
+    fun removeJsOptException(domain: String) {
+        val updated = _jsOptExceptions.value.toMutableSet()
+        updated.remove(domain)
+        _jsOptExceptions.value = updated
+        prefs.edit().putStringSet("js_opt_exceptions", updated).apply()
+    }
+
+    fun setAutofillEnabled(enabled: Boolean) {
+        _autofillEnabled.value = enabled
+        prefs.edit().putBoolean("autofill_enabled", enabled).apply()
+    }
+
+    fun setAutoClearMode(mode: String) {
+        _autoClearMode.value = mode
+        prefs.edit().putString("auto_clear_mode", mode).apply()
+    }
+
+    fun loadSavedPasswords() {
+        val set = prefs.getStringSet("saved_passwords_set", emptySet()) ?: emptySet()
+        val list = set.mapIndexed { index, str ->
+            val parts = str.split("|")
+            SavedPassword(
+                id = index.toLong(),
+                site = parts.getOrNull(0) ?: "",
+                username = parts.getOrNull(1) ?: "",
+                password = parts.getOrNull(2) ?: ""
+            )
+        }
+        _savedPasswords.value = list
+    }
+
+    fun addSavedPassword(site: String, username: String, password: String) {
+        val set = prefs.getStringSet("saved_passwords_set", emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.add("$site|$username|$password")
+        prefs.edit().putStringSet("saved_passwords_set", set).apply()
+        loadSavedPasswords()
+    }
+
+    fun deleteSavedPassword(site: String, username: String, password: String) {
+        val set = prefs.getStringSet("saved_passwords_set", emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.remove("$site|$username|$password")
+        prefs.edit().putStringSet("saved_passwords_set", set).apply()
+        loadSavedPasswords()
+    }
+
+    suspend fun clearAllBookmarks() {
+        repository.clearAllBookmarks()
+    }
 
     private val _accessPaymentMethods = MutableStateFlow(prefs.getBoolean("access_payment_methods", true))
     val accessPaymentMethods: StateFlow<Boolean> = _accessPaymentMethods.asStateFlow()
@@ -302,11 +483,92 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _isTabSwitcherVisible = MutableStateFlow(false)
     val isTabSwitcherVisible: StateFlow<Boolean> = _isTabSwitcherVisible.asStateFlow()
 
+    private val _tabLayoutStyle = MutableStateFlow(
+        TabLayoutStyle.valueOf(
+            prefs.getString("tab_layout_style", TabLayoutStyle.CAROUSEL.name) ?: TabLayoutStyle.CAROUSEL.name
+        )
+    )
+    val tabLayoutStyle: StateFlow<TabLayoutStyle> = _tabLayoutStyle.asStateFlow()
+
+    fun setTabLayoutStyle(style: TabLayoutStyle) {
+        _tabLayoutStyle.value = style
+        prefs.edit().putString("tab_layout_style", style.name).apply()
+    }
+
     private val _isBookmarksHistorySheetVisible = MutableStateFlow(false)
     val isBookmarksHistorySheetVisible: StateFlow<Boolean> = _isBookmarksHistorySheetVisible.asStateFlow()
 
     private val _isMediaStudioVisible = MutableStateFlow(false)
     val isMediaStudioVisible: StateFlow<Boolean> = _isMediaStudioVisible.asStateFlow()
+
+    private val _currentWebsiteThemeColor = MutableStateFlow<String?>(null)
+    val currentWebsiteThemeColor: StateFlow<String?> = _currentWebsiteThemeColor.asStateFlow()
+
+    fun updateWebsiteThemeColor(colorStr: String?) {
+        _currentWebsiteThemeColor.value = colorStr
+    }
+
+    // Reality Filters Toggles
+    private val _realityClickbaitFilter = MutableStateFlow(prefs.getBoolean("reality_clickbait_filter", false))
+    val realityClickbaitFilter: StateFlow<Boolean> = _realityClickbaitFilter.asStateFlow()
+
+    private val _realityAiBadge = MutableStateFlow(prefs.getBoolean("reality_ai_badge", false))
+    val realityAiBadge: StateFlow<Boolean> = _realityAiBadge.asStateFlow()
+
+    private val _realitySponsoredBlock = MutableStateFlow(prefs.getBoolean("reality_sponsored_block", false))
+    val realitySponsoredBlock: StateFlow<Boolean> = _realitySponsoredBlock.asStateFlow()
+
+    fun setRealityClickbaitFilter(enabled: Boolean) {
+        _realityClickbaitFilter.value = enabled
+        prefs.edit().putBoolean("reality_clickbait_filter", enabled).apply()
+    }
+
+    fun setRealityAiBadge(enabled: Boolean) {
+        _realityAiBadge.value = enabled
+        prefs.edit().putBoolean("reality_ai_badge", enabled).apply()
+    }
+
+    fun setRealitySponsoredBlock(enabled: Boolean) {
+        _realitySponsoredBlock.value = enabled
+        prefs.edit().putBoolean("reality_sponsored_block", enabled).apply()
+    }
+
+    // Per-site Preference Getters/Setters
+    fun getSiteZoom(domain: String): Float {
+        return if (domain.isBlank()) 1.0f else prefs.getFloat("site_zoom_$domain", 1.0f)
+    }
+
+    fun setSiteZoom(domain: String, zoom: Float) {
+        if (domain.isBlank()) return
+        prefs.edit().putFloat("site_zoom_$domain", zoom).apply()
+    }
+
+    fun getSiteForceDark(domain: String): Boolean {
+        return if (domain.isBlank()) false else prefs.getBoolean("site_dark_$domain", false)
+    }
+
+    fun setSiteForceDark(domain: String, enabled: Boolean) {
+        if (domain.isBlank()) return
+        prefs.edit().putBoolean("site_dark_$domain", enabled).apply()
+    }
+
+    fun getSiteAdBlock(domain: String): Boolean {
+        return if (domain.isBlank()) true else prefs.getBoolean("site_adblock_$domain", true)
+    }
+
+    fun setSiteAdBlock(domain: String, enabled: Boolean) {
+        if (domain.isBlank()) return
+        prefs.edit().putBoolean("site_adblock_$domain", enabled).apply()
+    }
+
+    fun getSiteScriptsEnabled(domain: String): Boolean {
+        return if (domain.isBlank()) true else prefs.getBoolean("site_scripts_$domain", true)
+    }
+
+    fun setSiteScriptsEnabled(domain: String, enabled: Boolean) {
+        if (domain.isBlank()) return
+        prefs.edit().putBoolean("site_scripts_$domain", enabled).apply()
+    }
 
     // Sheet tab: 0 for Bookmarks, 1 for History
     private val _activeSheetTab = MutableStateFlow(0)
@@ -324,6 +586,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         AdBlocker.initialize(application)
+        _adFilters.value = loadAdFilters()
+        
+        // Only trigger network update/sync on startup if the local cache file is missing or empty
+        val cacheFile = java.io.File(application.filesDir, "blocked_hosts.txt")
+        if (!cacheFile.exists() || cacheFile.length() == 0L) {
+            syncAdBlockerFilters()
+        }
+        
+        AdBlocker.setAdWhitelist(_adWhitelist.value)
         val database = AppDatabase.getDatabase(application)
         repository = BrowserRepository(database.browserDao())
 
@@ -364,6 +635,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         )
 
         allUserScripts = repository.allUserScripts.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        allDownloads = repository.allDownloads.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
@@ -439,6 +716,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+        loadSavedPasswords()
     }
 
     private var isUserTyping = false
@@ -453,7 +731,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private suspend fun createDefaultTab() {
         val defaultTab = BrowserTab(
-            title = "Autumn '23 Collection",
+            title = "Start Page",
             url = "dineinstyle.com",
             isSelected = true
         )
@@ -502,7 +780,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             repository.deselectAllTabs()
             val newTab = BrowserTab(
-                title = if (cleanUrl == "dineinstyle.com") "Autumn '23 Collection" else getDomainName(cleanUrl),
+                title = if (cleanUrl == "dineinstyle.com") "Start Page" else getDomainName(cleanUrl),
                 url = cleanUrl,
                 isSelected = true
             )
@@ -560,12 +838,102 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun toggleTabLock(tabId: Long) {
+        viewModelScope.launch {
+            val tab = allTabs.value.find { it.id == tabId }
+            if (tab != null) {
+                repository.updateTab(tab.copy(isLocked = !tab.isLocked))
+            }
+        }
+    }
+
+    fun unlockTab(tabId: Long) {
+        _unlockedTabIds.value = _unlockedTabIds.value + tabId
+    }
+
+    fun lockTab(tabId: Long) {
+        _unlockedTabIds.value = _unlockedTabIds.value - tabId
+    }
+
+    fun recordPageStart(tabId: Long) {
+        pageStartTimes[tabId] = System.currentTimeMillis()
+    }
+
+    fun recordPageFinished(tabId: Long) {
+        val startTime = pageStartTimes[tabId]
+        if (startTime != null) {
+            val duration = System.currentTimeMillis() - startTime
+            val currentMap = _pageLoadTimes.value.toMutableMap()
+            currentMap[tabId] = duration
+            _pageLoadTimes.value = currentMap
+        }
+    }
+
+    fun addCustomDeClutterKeyword(keyword: String) {
+        val clean = keyword.trim().lowercase()
+        if (clean.isNotEmpty() && !_customDeClutterKeywords.value.contains(clean)) {
+            val newList = _customDeClutterKeywords.value + clean
+            _customDeClutterKeywords.value = newList
+            prefs.edit().putString("de_clutter_keywords", newList.joinToString(",")).apply()
+        }
+    }
+
+    fun removeCustomDeClutterKeyword(keyword: String) {
+        val clean = keyword.trim().lowercase()
+        if (_customDeClutterKeywords.value.contains(clean)) {
+            val newList = _customDeClutterKeywords.value - clean
+            _customDeClutterKeywords.value = newList
+            prefs.edit().putString("de_clutter_keywords", newList.joinToString(",")).apply()
+        }
+    }
+
+    fun toggleBookmarkWatchMode(url: String) {
+        viewModelScope.launch {
+            val bookmark = repository.getBookmarkByUrl(url)
+            if (bookmark != null) {
+                repository.updateBookmark(bookmark.copy(isWatchMode = !bookmark.isWatchMode))
+            }
+        }
+    }
+
+    fun updateBookmarkTextHash(url: String, textHash: String) {
+        viewModelScope.launch {
+            val bookmark = repository.getBookmarkByUrl(url)
+            if (bookmark != null) {
+                repository.updateBookmark(bookmark.copy(lastTextHash = textHash))
+            }
+        }
+    }
+
+    // Website Evolution notification states
+    private val _websiteEvolutionAlert = MutableStateFlow<Pair<String, Int>?>(null)
+    val websiteEvolutionAlert: StateFlow<Pair<String, Int>?> = _websiteEvolutionAlert.asStateFlow()
+
+    fun setWebsiteEvolutionAlert(url: String, newCount: Int) {
+        _websiteEvolutionAlert.value = Pair(url, newCount)
+    }
+
+    fun dismissWebsiteEvolutionAlert() {
+        _websiteEvolutionAlert.value = null
+    }
+
+    fun clearBookmarkTextHashAndReload(url: String, reloadTrigger: () -> Unit) {
+        viewModelScope.launch {
+            val bookmark = repository.getBookmarkByUrl(url)
+            if (bookmark != null) {
+                repository.updateBookmark(bookmark.copy(lastTextHash = null))
+                reloadTrigger()
+                _websiteEvolutionAlert.value = null
+            }
+        }
+    }
+
     fun addTabToGroup(groupName: String, url: String = "dineinstyle.com") {
         val cleanUrl = if (url == "dineinstyle.com") url else AdBlocker.cleanTrackingParameters(url)
         viewModelScope.launch {
             repository.deselectAllTabs()
             val newTab = BrowserTab(
-                title = if (cleanUrl == "dineinstyle.com") "Autumn '23 Collection" else getDomainName(cleanUrl),
+                title = if (cleanUrl == "dineinstyle.com") "Start Page" else getDomainName(cleanUrl),
                 url = cleanUrl,
                 isSelected = true,
                 groupName = groupName.trim().ifEmpty { null }
@@ -762,6 +1130,109 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _ucPlayerVideoTitle.value = title
     }
 
+    // Background Player Actions
+    fun playBackgroundVideo(media: CapturedMedia) {
+        _backgroundVideo.value = media
+        _isBackgroundVideoPlaying.value = true
+        
+        backgroundMediaPlayer?.release()
+        backgroundMediaPlayer = null
+        
+        try {
+            backgroundMediaPlayer = android.media.MediaPlayer().apply {
+                setDataSource(media.url)
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    try {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            mp.playbackParams = mp.playbackParams.setSpeed(_ucPlayerDefaultSpeed.value)
+                        }
+                    } catch (e: Exception) {}
+                }
+                setOnCompletionListener {
+                    playNextInQueue()
+                }
+                setOnErrorListener { _, _, _ ->
+                    playNextInQueue()
+                    true
+                }
+                prepareAsync()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            playNextInQueue()
+        }
+    }
+
+    fun toggleBackgroundVideoPlay() {
+        backgroundMediaPlayer?.let { mp ->
+            if (mp.isPlaying) {
+                mp.pause()
+                _isBackgroundVideoPlaying.value = false
+            } else {
+                mp.start()
+                _isBackgroundVideoPlaying.value = true
+            }
+        } ?: run {
+            _backgroundVideo.value?.let { playBackgroundVideo(it) }
+        }
+    }
+
+    fun stopBackgroundVideo() {
+        backgroundMediaPlayer?.apply {
+            try {
+                if (isPlaying) stop()
+            } catch (e: Exception) {}
+            release()
+        }
+        backgroundMediaPlayer = null
+        _backgroundVideo.value = null
+        _isBackgroundVideoPlaying.value = false
+    }
+
+    fun playNextInQueue() {
+        val currentQueue = _videoQueue.value
+        if (currentQueue.isNotEmpty()) {
+            val nextMedia = currentQueue.first()
+            _videoQueue.value = currentQueue.drop(1)
+            playBackgroundVideo(nextMedia)
+        } else {
+            stopBackgroundVideo()
+        }
+    }
+
+    // Video Queue Actions
+    fun addToVideoQueue(media: CapturedMedia) {
+        val current = _videoQueue.value.toMutableList()
+        if (!current.any { it.url == media.url }) {
+            current.add(media)
+            _videoQueue.value = current
+        }
+    }
+
+    fun removeFromVideoQueue(id: Long) {
+        _videoQueue.value = _videoQueue.value.filter { it.id != id }
+    }
+
+    fun clearVideoQueue() {
+        _videoQueue.value = emptyList()
+    }
+
+    fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        val list = _videoQueue.value.toMutableList()
+        if (fromIndex in list.indices && toIndex in list.indices) {
+            val element = list.removeAt(fromIndex)
+            list.add(toIndex, element)
+            _videoQueue.value = list
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        backgroundMediaPlayer?.release()
+        backgroundMediaPlayer = null
+    }
+
     fun setAlwaysUseHttps(enabled: Boolean) {
         _alwaysUseHttps.value = enabled
         prefs.edit().putBoolean("always_use_https", enabled).apply()
@@ -855,6 +1326,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setJsOptimisationAndSecurity(enabled: Boolean) {
         _jsOptimisationAndSecurity.value = enabled
         prefs.edit().putBoolean("js_optimisation_and_security", enabled).apply()
+    }
+
+    fun setPerformanceEngineEnabled(enabled: Boolean) {
+        _performanceEngineEnabled.value = enabled
+        prefs.edit().putBoolean("performance_engine_enabled", enabled).apply()
+    }
+
+    fun setV8JitMode(mode: String) {
+        _v8JitMode.value = mode
+        prefs.edit().putString("v8_jit_mode", mode).apply()
+    }
+
+    fun setV8OptimizationFlags(flags: Set<String>) {
+        _v8OptimizationFlags.value = flags
+        prefs.edit().putStringSet("v8_optimization_flags", flags).apply()
     }
 
     fun setAccessPaymentMethods(enabled: Boolean) {
@@ -1038,35 +1524,39 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateSearchQuery(query: String) {
-        _searchQuery.value = query
-        suggestionsJob?.cancel()
-        if (query.isBlank()) {
-            _searchSuggestions.value = emptyList()
-            return
-        }
-        suggestionsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            kotlinx.coroutines.delay(300)
-            try {
-                val url = "https://suggestqueries.google.com/complete/search?client=chrome&q=" + java.net.URLEncoder.encode(query, "UTF-8")
-                val client = okhttp3.OkHttpClient()
-                val request = okhttp3.Request.Builder().url(url).build()
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
-                        val jsonArray = org.json.JSONArray(bodyString)
-                        val suggestionsArray = jsonArray.optJSONArray(1)
-                        val suggestionsList = mutableListOf<String>()
-                        if (suggestionsArray != null) {
-                            for (i in 0 until suggestionsArray.length()) {
-                                suggestionsList.add(suggestionsArray.optString(i))
-                            }
-                        }
-                        _searchSuggestions.value = suggestionsList
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+        try {
+            _searchQuery.value = query
+            suggestionsJob?.cancel()
+            if (query.isBlank()) {
+                _searchSuggestions.value = emptyList()
+                return
             }
+            suggestionsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    kotlinx.coroutines.delay(300)
+                    val url = "https://suggestqueries.google.com/complete/search?client=chrome&q=" + java.net.URLEncoder.encode(query, "UTF-8")
+                    val client = okhttp3.OkHttpClient()
+                    val request = okhttp3.Request.Builder().url(url).build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val bodyString = response.body?.string() ?: ""
+                            val jsonArray = org.json.JSONArray(bodyString)
+                            val suggestionsArray = jsonArray.optJSONArray(1)
+                            val suggestionsList = mutableListOf<String>()
+                            if (suggestionsArray != null) {
+                                for (i in 0 until suggestionsArray.length()) {
+                                    suggestionsList.add(suggestionsArray.optString(i))
+                                }
+                            }
+                            _searchSuggestions.value = suggestionsList
+                        }
+                    }
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                }
+            }
+        } catch (t: Throwable) {
+            t.printStackTrace()
         }
     }
 
@@ -1075,6 +1565,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             if (repository.isBookmarked(url)) {
                 repository.deleteBookmarkByUrl(url)
             } else {
+                repository.insertBookmark(Bookmark(title = title, url = url))
+            }
+        }
+    }
+
+    fun addBookmark(title: String, url: String) {
+        viewModelScope.launch {
+            if (!repository.isBookmarked(url)) {
                 repository.insertBookmark(Bookmark(title = title, url = url))
             }
         }
@@ -1313,6 +1811,333 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // --- Downloads Helpers ---
+    fun insertDownload(download: com.example.data.DownloadEntry) {
+        viewModelScope.launch {
+            repository.insertDownload(download)
+        }
+    }
+
+    fun updateDownload(download: com.example.data.DownloadEntry) {
+        viewModelScope.launch {
+            repository.updateDownload(download)
+        }
+    }
+
+    fun deleteDownload(id: Long) {
+        viewModelScope.launch {
+            repository.deleteDownloadById(id)
+        }
+    }
+
+    fun clearAllDownloads() {
+        viewModelScope.launch {
+            repository.clearAllDownloads()
+        }
+    }
+
+    // --- Web Cleaner Methods & Subscriptions ---
+    fun setElementInspectionEnabled(enabled: Boolean) {
+        _elementInspectionEnabled.value = enabled
+        prefs.edit().putBoolean("element_inspection_enabled", enabled).apply()
+    }
+
+    fun setBlockAreaEnabled(enabled: Boolean) {
+        _blockAreaEnabled.value = enabled
+        prefs.edit().putBoolean("block_area_enabled", enabled).apply()
+    }
+
+    fun setOverlayBlockerEnabled(enabled: Boolean) {
+        _overlayBlockerEnabled.value = enabled
+        prefs.edit().putBoolean("overlay_blocker_enabled", enabled).apply()
+    }
+
+    fun setPopupBlockerMode(mode: String) {
+        _popupBlockerMode.value = mode
+        prefs.edit().putString("popup_blocker_mode", mode).apply()
+    }
+
+    fun setBlockAppExecutionEnabled(enabled: Boolean) {
+        _blockAppExecutionEnabled.value = enabled
+        prefs.edit().putBoolean("block_app_execution_enabled", enabled).apply()
+    }
+
+    fun setLockScreenEnabled(enabled: Boolean) {
+        _lockScreenEnabled.value = enabled
+        prefs.edit().putBoolean("lock_screen_enabled", enabled).apply()
+    }
+
+    fun setBlockedImagesEnabled(enabled: Boolean) {
+        _blockedImagesEnabled.value = enabled
+        prefs.edit().putBoolean("blocked_images_enabled", enabled).apply()
+    }
+
+    // Whitelist & Blocklist editors
+    fun addAdWhitelist(domain: String) {
+        val clean = domain.trim().lowercase()
+        if (clean.isNotEmpty()) {
+            val next = _adWhitelist.value + clean
+            _adWhitelist.value = next
+            prefs.edit().putStringSet("ad_whitelist", next).apply()
+            AdBlocker.setAdWhitelist(next)
+        }
+    }
+
+    fun removeAdWhitelist(domain: String) {
+        val next = _adWhitelist.value - domain.trim().lowercase()
+        _adWhitelist.value = next
+        prefs.edit().putStringSet("ad_whitelist", next).apply()
+        AdBlocker.setAdWhitelist(next)
+    }
+
+    fun addOverlayWhitelist(domain: String) {
+        val clean = domain.trim().lowercase()
+        if (clean.isNotEmpty()) {
+            val next = _overlayWhitelist.value + clean
+            _overlayWhitelist.value = next
+            prefs.edit().putStringSet("overlay_whitelist", next).apply()
+        }
+    }
+
+    fun removeOverlayWhitelist(domain: String) {
+        val next = _overlayWhitelist.value - domain.trim().lowercase()
+        _overlayWhitelist.value = next
+        prefs.edit().putStringSet("overlay_whitelist", next).apply()
+    }
+
+    fun addPopupWhitelist(domain: String) {
+        val clean = domain.trim().lowercase()
+        if (clean.isNotEmpty()) {
+            val next = _popupWhitelist.value + clean
+            _popupWhitelist.value = next
+            prefs.edit().putStringSet("popup_whitelist", next).apply()
+        }
+    }
+
+    fun removePopupWhitelist(domain: String) {
+        val next = _popupWhitelist.value - domain.trim().lowercase()
+        _popupWhitelist.value = next
+        prefs.edit().putStringSet("popup_whitelist", next).apply()
+    }
+
+    fun addBlockedLink(link: String) {
+        val clean = link.trim().lowercase()
+        if (clean.isNotEmpty()) {
+            val next = _blockedLinks.value + clean
+            _blockedLinks.value = next
+            prefs.edit().putStringSet("blocked_links", next).apply()
+        }
+    }
+
+    fun removeBlockedLink(link: String) {
+        val next = _blockedLinks.value - link.trim().lowercase()
+        _blockedLinks.value = next
+        prefs.edit().putStringSet("blocked_links", next).apply()
+    }
+
+    fun addBlockedImage(pattern: String) {
+        val clean = pattern.trim().lowercase()
+        if (clean.isNotEmpty()) {
+            val next = _blockedImages.value + clean
+            _blockedImages.value = next
+            prefs.edit().putStringSet("blocked_images", next).apply()
+        }
+    }
+
+    fun removeBlockedImage(pattern: String) {
+        val next = _blockedImages.value - pattern.trim().lowercase()
+        _blockedImages.value = next
+        prefs.edit().putStringSet("blocked_images", next).apply()
+    }
+
+    fun addCustomBlockedElement(selector: String) {
+        val clean = selector.trim()
+        if (clean.isNotEmpty()) {
+            val next = _customBlockedElements.value + clean
+            _customBlockedElements.value = next
+            prefs.edit().putStringSet("custom_blocked_elements", next).apply()
+        }
+    }
+
+    fun removeCustomBlockedElement(selector: String) {
+        val next = _customBlockedElements.value - selector.trim()
+        _customBlockedElements.value = next
+        prefs.edit().putStringSet("custom_blocked_elements", next).apply()
+    }
+
+    fun isPopupWhitelisted(host: String): Boolean {
+        var tempHost = host.lowercase().trim()
+        while (tempHost.contains(".")) {
+            if (_popupWhitelist.value.contains(tempHost)) {
+                return true
+            }
+            tempHost = tempHost.substringAfter(".", "")
+            if (tempHost.isEmpty()) break
+        }
+        return false
+    }
+
+    fun isOverlayWhitelisted(host: String): Boolean {
+        var tempHost = host.lowercase().trim()
+        while (tempHost.contains(".")) {
+            if (_overlayWhitelist.value.contains(tempHost)) {
+                return true
+            }
+            tempHost = tempHost.substringAfter(".", "")
+            if (tempHost.isEmpty()) break
+        }
+        return false
+    }
+
+    fun isHostWhitelisted(host: String): Boolean {
+        var tempHost = host.lowercase().trim()
+        while (tempHost.contains(".")) {
+            if (_adWhitelist.value.contains(tempHost)) {
+                return true
+            }
+            tempHost = tempHost.substringAfter(".", "")
+            if (tempHost.isEmpty()) break
+        }
+        return false
+    }
+
+    fun isLinkBlocked(url: String): Boolean {
+        val lowerUrl = url.lowercase().trim()
+        return _blockedLinks.value.any { lowerUrl.contains(it) }
+    }
+
+    fun isImageBlocked(url: String): Boolean {
+        val lowerUrl = url.lowercase().trim()
+        return _blockedImages.value.any { lowerUrl.contains(it) }
+    }
+
+    private fun saveAdFilters(filters: List<com.example.data.AdFilterSubscription>) {
+        val array = org.json.JSONArray()
+        for (f in filters) {
+            val obj = org.json.JSONObject()
+            obj.put("id", f.id)
+            obj.put("name", f.name)
+            obj.put("url", f.url)
+            obj.put("lastUpdated", f.lastUpdated)
+            obj.put("size", f.size)
+            obj.put("enabled", f.enabled)
+            array.put(obj)
+        }
+        prefs.edit().putString("ad_filter_subscriptions", array.toString()).apply()
+    }
+
+    private fun loadAdFilters(): List<com.example.data.AdFilterSubscription> {
+        val jsonStr = prefs.getString("ad_filter_subscriptions", null) ?: return listOf(
+            com.example.data.AdFilterSubscription("easylist", "EasyList", "https://easylist-downloads.adblockplus.org/easylist.txt", "01/07/2026", "1.95 MB", true),
+            com.example.data.AdFilterSubscription("mobile_ads", "Mobile ads filter", "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", "01/07/2026", "611.43 KB", true),
+            com.example.data.AdFilterSubscription("oisd", "OISD Ads Filter", "https://small.oisd.nl", "01/07/2026", "824.12 KB", false)
+        )
+        val list = mutableListOf<com.example.data.AdFilterSubscription>()
+        try {
+            val array = org.json.JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    com.example.data.AdFilterSubscription(
+                        id = obj.getString("id"),
+                        name = obj.getString("name"),
+                        url = obj.getString("url"),
+                        lastUpdated = obj.getString("lastUpdated"),
+                        size = obj.getString("size"),
+                        enabled = obj.getBoolean("enabled")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun toggleAdFilter(id: String) {
+        val updated = _adFilters.value.map {
+            if (it.id == id) it.copy(enabled = !it.enabled) else it
+        }
+        _adFilters.value = updated
+        saveAdFilters(updated)
+        syncAdBlockerFilters()
+    }
+
+    fun addAdFilter(name: String, url: String) {
+        val id = java.util.UUID.randomUUID().toString()
+        val nextFilter = com.example.data.AdFilterSubscription(
+            id = id,
+            name = name,
+            url = url,
+            lastUpdated = "Never",
+            size = "0 KB",
+            enabled = true
+        )
+        val nextList = _adFilters.value + nextFilter
+        _adFilters.value = nextList
+        saveAdFilters(nextList)
+        syncAdBlockerFilters()
+    }
+
+    fun updateAdFilter(id: String, name: String, url: String) {
+        val updated = _adFilters.value.map {
+            if (it.id == id) it.copy(name = name, url = url) else it
+        }
+        _adFilters.value = updated
+        saveAdFilters(updated)
+        syncAdBlockerFilters()
+    }
+
+    fun deleteAdFilter(id: String) {
+        val updated = _adFilters.value.filter { it.id != id }
+        _adFilters.value = updated
+        saveAdFilters(updated)
+        syncAdBlockerFilters()
+    }
+
+    fun syncAdBlockerFilters() {
+        val enabledUrls = _adFilters.value.filter { it.enabled }.map { it.url }
+        if (enabledUrls.isNotEmpty()) {
+            AdBlocker.updateFilterLists(getApplication(), enabledUrls)
+        } else {
+            AdBlocker.updateFilterLists(getApplication(), emptyList())
+        }
+    }
+
+    private val _copyUnblockDisabledDomains = MutableStateFlow<Set<String>>(
+        prefs.getStringSet("copy_unblock_disabled_domains", emptySet()) ?: emptySet()
+    )
+    val copyUnblockDisabledDomains: StateFlow<Set<String>> = _copyUnblockDisabledDomains.asStateFlow()
+
+    fun isCopyUnblockActiveForUrl(urlStr: String?): Boolean {
+        if (urlStr.isNullOrEmpty()) return true
+        val host = try {
+            android.net.Uri.parse(urlStr).host?.lowercase() ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        if (host.isEmpty()) return true
+        return !_copyUnblockDisabledDomains.value.contains(host)
+    }
+
+    fun toggleCopyUnblockForUrl(urlStr: String?) {
+        if (urlStr.isNullOrEmpty()) return
+        val host = try {
+            android.net.Uri.parse(urlStr).host?.lowercase() ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        if (host.isEmpty()) return
+        val currentSet = _copyUnblockDisabledDomains.value.toMutableSet()
+        if (currentSet.contains(host)) {
+            currentSet.remove(host)
+        } else {
+            currentSet.add(host)
+        }
+        _copyUnblockDisabledDomains.value = currentSet
+        prefs.edit().putStringSet("copy_unblock_disabled_domains", currentSet).apply()
+    }
+
     class Factory(private val application: Application) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(BrowserViewModel::class.java)) {
@@ -1323,3 +2148,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 }
+
+data class SavedPassword(
+    val id: Long,
+    val site: String,
+    val username: String,
+    val password: String
+)

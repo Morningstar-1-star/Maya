@@ -31,12 +31,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
-            val isDarkTheme = when (themeMode) {
-                "light" -> false
-                "dark" -> true
-                else -> androidx.compose.foundation.isSystemInDarkTheme()
-            }
-            MyApplicationTheme(darkTheme = isDarkTheme) {
+            MyApplicationTheme(themeMode = themeMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

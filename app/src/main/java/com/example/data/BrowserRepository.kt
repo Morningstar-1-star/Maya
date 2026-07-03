@@ -34,11 +34,17 @@ class BrowserRepository(private val browserDao: BrowserDao) {
 
     suspend fun insertBookmark(bookmark: Bookmark) = browserDao.insertBookmark(bookmark)
 
+    suspend fun updateBookmark(bookmark: Bookmark) = browserDao.updateBookmark(bookmark)
+
+    suspend fun getBookmarkByUrl(url: String): Bookmark? = browserDao.getBookmarkByUrl(url)
+
     suspend fun deleteBookmarkById(id: Long) = browserDao.deleteBookmarkById(id)
 
     suspend fun deleteBookmarkByUrl(url: String) = browserDao.deleteBookmarkByUrl(url)
 
     suspend fun isBookmarked(url: String): Boolean = browserDao.isBookmarked(url)
+
+    suspend fun clearAllBookmarks() = browserDao.clearAllBookmarks()
 
     // --- Shortcuts ---
     val allShortcuts: Flow<List<HomepageShortcut>> = browserDao.getAllShortcuts()
@@ -71,4 +77,15 @@ class BrowserRepository(private val browserDao: BrowserDao) {
     suspend fun deleteUserScript(script: UserScript) = browserDao.deleteUserScript(script)
 
     suspend fun deleteUserScriptById(id: Long) = browserDao.deleteUserScriptById(id)
+
+    // --- Downloads ---
+    val allDownloads: Flow<List<DownloadEntry>> = browserDao.getAllDownloads()
+
+    suspend fun insertDownload(download: DownloadEntry): Long = browserDao.insertDownload(download)
+
+    suspend fun updateDownload(download: DownloadEntry) = browserDao.updateDownload(download)
+
+    suspend fun deleteDownloadById(id: Long) = browserDao.deleteDownloadById(id)
+
+    suspend fun clearAllDownloads() = browserDao.clearAllDownloads()
 }

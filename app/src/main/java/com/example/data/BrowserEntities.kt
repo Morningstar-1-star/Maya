@@ -10,7 +10,8 @@ data class BrowserTab(
     val url: String,
     val isSelected: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
-    val groupName: String? = null
+    val groupName: String? = null,
+    val isLocked: Boolean = false
 )
 
 @Entity(tableName = "history_entries")
@@ -26,7 +27,9 @@ data class Bookmark(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
     val url: String,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val isWatchMode: Boolean = false,
+    val lastTextHash: String? = null
 )
 
 @Entity(tableName = "homepage_shortcuts")
@@ -60,4 +63,24 @@ data class UserScript(
     val isEnabled: Boolean = true,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+data class AdFilterSubscription(
+    val id: String,
+    val name: String,
+    val url: String,
+    val lastUpdated: String,
+    val size: String,
+    val enabled: Boolean
+)
+
+@Entity(tableName = "download_entries")
+data class DownloadEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val filename: String,
+    val url: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val status: String = "Downloading", // "Downloading", "Completed", "Failed"
+    val size: String = "Unknown size"
+)
+
 
