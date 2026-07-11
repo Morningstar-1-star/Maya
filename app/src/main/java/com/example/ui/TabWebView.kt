@@ -149,6 +149,9 @@ object WebViewPool {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupSettings(webView: WebView, viewModel: BrowserViewModel) {
+        webView.overScrollMode = WebView.OVER_SCROLL_ALWAYS
+        // Force full hardware rendering acceleration for extremely smooth and responsive browsing
+        webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -159,6 +162,9 @@ object WebViewPool {
             displayZoomControls = false
             setSupportZoom(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            
+            // Speed up page loading and layout processing by pre-rasterizing offscreen elements
+            offscreenPreRaster = true
             
             if (viewModel.lowPowerModeEnabled.value) {
                 cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
@@ -1187,16 +1193,25 @@ fun TabWebView(
         }
     }
 
-    val siteZoom = if (currentDomain.isNotBlank() && viewModel.getSiteZoom(currentDomain) != 1.0f) {
-        viewModel.getSiteZoom(currentDomain)
-    } else {
-        webZoomLevel
+    val perSitePrefsTrigger by viewModel.perSitePrefsTrigger.collectAsState()
+    val clickbaitOn by viewModel.realityClickbaitFilter.collectAsState()
+    val sponsoredOn by viewModel.realitySponsoredBlock.collectAsState()
+    val aiBadgeOn by viewModel.realityAiBadge.collectAsState()
+
+    val siteZoom = remember(currentDomain, perSitePrefsTrigger, webZoomLevel) {
+        if (currentDomain.isNotBlank() && viewModel.getSiteZoom(currentDomain) != 1.0f) {
+            viewModel.getSiteZoom(currentDomain)
+        } else {
+            webZoomLevel
+        }
     }
 
-    val siteForceDark = if (currentDomain.isNotBlank() && viewModel.getSiteForceDark(currentDomain)) {
-        true
-    } else {
-        forceDarkWebpages
+    val siteForceDark = remember(currentDomain, perSitePrefsTrigger, forceDarkWebpages) {
+        if (currentDomain.isNotBlank() && viewModel.getSiteForceDark(currentDomain)) {
+            true
+        } else {
+            forceDarkWebpages
+        }
     }
 
     // Load URL if the web view's URL is empty or is different from the target
@@ -1307,6 +1322,102 @@ fun TabWebView(
                 """.trimIndent()
             }
             view.evaluateJavascript(distractScript, null)
+
+            // Dynamic Reality Filters evaluation
+            val clickbait = clickbaitOn
+            val sponsored = sponsoredOn
+            val aiBadge = aiBadgeOn
+            
+            val realityFiltersScript = """
+                (function() {
+                    // 1. Clickbait Filter
+                    if ($clickbait) {
+                        const clickbaitWords = ['you won\'t believe', 'shocking truth', 'secret to', 'what happens next', 'will blow your mind', 'this is why', 'destroy your', 'ultimate guide to'];
+                        document.querySelectorAll('a, h1, h2, h3, h4, h5, p, span').forEach(el => {
+                            const text = el.innerText ? el.innerText.toLowerCase() : '';
+                            if (clickbaitWords.some(word => text.includes(word))) {
+                                el.style.opacity = '0.15';
+                                el.style.transition = 'opacity 0.5s';
+                                el.title = 'Clickbait filter minimized this element';
+                                el.addEventListener('mouseover', () => el.style.opacity = '1');
+                                el.addEventListener('mouseout', () => el.style.opacity = '0.15');
+                            }
+                        });
+                    } else {
+                        document.querySelectorAll('a, h1, h2, h3, h4, h5, p, span').forEach(el => {
+                            if (el.style.opacity === '0.15' && el.title === 'Clickbait filter minimized this element') {
+                                el.style.opacity = '1';
+                            }
+                        });
+                    }
+
+                    // 2. Sponsored Content Blocker
+                    if ($sponsored) {
+                        const sponsoredSelectors = [
+                            '.sponsored-post', '.promoted-content', '[class*="sponsored" i]', '[id*="sponsored" i]',
+                            '[class*="promoted" i]', '[id*="promoted" i]', '[class*="advertisement" i]', '[id*="advertisement" i]'
+                        ];
+                        sponsoredSelectors.forEach(selector => {
+                            try {
+                                document.querySelectorAll(selector).forEach(el => {
+                                    el.style.display = 'none';
+                                });
+                            } catch(e) {}
+                        });
+                        document.querySelectorAll('span, div, p, a').forEach(el => {
+                            if (el.innerText && (el.innerText === 'Sponsored' || el.innerText === 'Promoted' || el.innerText === 'Advertisement')) {
+                                let parent = el.parentElement;
+                                if (parent) {
+                                    parent.style.opacity = '0.1';
+                                    parent.style.transition = 'opacity 0.3s';
+                                }
+                            }
+                        });
+                    } else {
+                        document.querySelectorAll('span, div, p, a').forEach(el => {
+                            if (el.innerText && (el.innerText === 'Sponsored' || el.innerText === 'Promoted' || el.innerText === 'Advertisement')) {
+                                let parent = el.parentElement;
+                                if (parent && parent.style.opacity === '0.1') {
+                                    parent.style.opacity = '1';
+                                }
+                            }
+                        });
+                    }
+
+                    // 3. AI-Generated Badge Finder
+                    if ($aiBadge) {
+                        const aiPhrases = ['as an ai language model', 'it is important to remember', 'dive deep into', 'delve into', 'testament to', 'not only... but also', 'it is worth noting'];
+                        let score = 0;
+                        const text = document.body ? document.body.innerText.toLowerCase() : '';
+                        aiPhrases.forEach(phrase => {
+                            if (text.includes(phrase)) score++;
+                        });
+                        if (score >= 2 && !document.getElementById('ai-detection-badge')) {
+                            const badge = document.createElement('div');
+                            badge.id = 'ai-detection-badge';
+                            badge.innerHTML = '🤖 Potential AI Content Detected';
+                            badge.style.position = 'fixed';
+                            badge.style.top = '10px';
+                            badge.style.right = '10px';
+                            badge.style.backgroundColor = '#0284C7';
+                            badge.style.color = 'white';
+                            badge.style.padding = '6px 12px';
+                            badge.style.borderRadius = '20px';
+                            badge.style.fontSize = '12px';
+                            badge.style.fontWeight = 'bold';
+                            badge.style.zIndex = '999999';
+                            badge.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+                            badge.style.cursor = 'pointer';
+                            badge.onclick = function() { badge.remove(); };
+                            document.body.appendChild(badge);
+                        }
+                    } else {
+                        const badge = document.getElementById('ai-detection-badge');
+                        if (badge) badge.remove();
+                    }
+                })();
+            """.trimIndent()
+            view.evaluateJavascript(realityFiltersScript, null)
         }
     )
 }

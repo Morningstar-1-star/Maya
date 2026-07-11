@@ -193,6 +193,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _isSummaryDialogVisible = MutableStateFlow(false)
     val isSummaryDialogVisible: StateFlow<Boolean> = _isSummaryDialogVisible.asStateFlow()
 
+    // Per-site Preferences Trigger for Compose reactive updates
+    private val _perSitePrefsTrigger = MutableStateFlow(0)
+    val perSitePrefsTrigger: StateFlow<Int> = _perSitePrefsTrigger.asStateFlow()
+
     private val _summaryContent = MutableStateFlow("")
     val summaryContent: StateFlow<String> = _summaryContent.asStateFlow()
 
@@ -649,6 +653,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setSiteZoom(domain: String, zoom: Float) {
         if (domain.isBlank()) return
         prefs.edit().putFloat("site_zoom_$domain", zoom).apply()
+        _perSitePrefsTrigger.value += 1
     }
 
     fun getSiteForceDark(domain: String): Boolean {
@@ -658,6 +663,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setSiteForceDark(domain: String, enabled: Boolean) {
         if (domain.isBlank()) return
         prefs.edit().putBoolean("site_dark_$domain", enabled).apply()
+        _perSitePrefsTrigger.value += 1
     }
 
     fun getSiteAdBlock(domain: String): Boolean {
@@ -667,6 +673,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setSiteAdBlock(domain: String, enabled: Boolean) {
         if (domain.isBlank()) return
         prefs.edit().putBoolean("site_adblock_$domain", enabled).apply()
+        _perSitePrefsTrigger.value += 1
     }
 
     fun getSiteScriptsEnabled(domain: String): Boolean {
@@ -676,6 +683,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setSiteScriptsEnabled(domain: String, enabled: Boolean) {
         if (domain.isBlank()) return
         prefs.edit().putBoolean("site_scripts_$domain", enabled).apply()
+        _perSitePrefsTrigger.value += 1
     }
 
     // Sheet tab: 0 for Bookmarks, 1 for History

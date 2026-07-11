@@ -3,6 +3,7 @@ package com.example.ui
 import kotlin.math.roundToInt
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
@@ -92,6 +93,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -422,6 +424,63 @@ fun BrowserScreen(
     val activeTab = allTabs.find { it.id == activeTabId }
     val activeTabGroupName = remember(activeTab) { activeTab?.groupName }
     val isTabGroupActive = activeTabGroupName != null
+
+    val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val isDarkTheme = when (themeMode) {
+        "light" -> false
+        "dark", "amoled" -> true
+        else -> isSystemDark
+    }
+
+    val overlayActive = isAdBlockerPopupVisible || isTabSwitcherVisible || isBookmarksHistorySheetVisible || isMediaStudioVisible || isSettingsScreenVisible || isCookieEditorVisible || (detectedVideoMedia != null)
+    val backgroundBlur by animateDpAsState(
+        targetValue = if (overlayActive) 16.dp else 0.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "blur"
+    )
+    val backgroundScale by animateFloatAsState(
+        targetValue = if (overlayActive) 0.94f else 1.0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "scale"
+    )
+
+    // Root level BackHandler for Predictive Back and hierarchical back navigation
+    BackHandler(enabled = true) {
+        when {
+            isTabSwitcherVisible -> {
+                viewModel.setTabSwitcherVisible(false)
+            }
+            isBookmarksHistorySheetVisible -> {
+                viewModel.setBookmarksHistorySheetVisible(false)
+            }
+            isSettingsScreenVisible -> {
+                if (currentSettingsSubScreen != "main") {
+                    viewModel.setSettingsSubScreen("main")
+                } else {
+                    viewModel.setSettingsScreenVisible(false)
+                }
+            }
+            isCookieEditorVisible -> {
+                isCookieEditorVisible = false
+            }
+            showWebsiteUpdatesDialog -> {
+                showWebsiteUpdatesDialog = false
+            }
+            activeTab != null -> {
+                val webView = WebViewPool.getOrCreateWebView(context, activeTab.id, viewModel)
+                if (webView.canGoBack()) {
+                    webView.goBack()
+                } else if (activeTab.url != "dineinstyle.com") {
+                    viewModel.loadUrl("dineinstyle.com")
+                } else {
+                    (context as? android.app.Activity)?.finish()
+                }
+            }
+            else -> {
+                (context as? android.app.Activity)?.finish()
+            }
+        }
+    }
     val tabsInActiveGroupCount = remember(allTabs, activeTabGroupName) {
         if (activeTabGroupName != null) {
             allTabs.count { it.groupName == activeTabGroupName }
@@ -645,85 +704,117 @@ fun BrowserScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .graphicsLayer {
+                        scaleX = backgroundScale
+                        scaleY = backgroundScale
+                        clip = true
+                    }
+                    .blur(backgroundBlur)
             ) {
-                if (activeTab != null) {
-                    if (activeTab.url == "dineinstyle.com") {
-                        val wallpaperUrl by viewModel.customWallpaperUrl.collectAsStateWithLifecycle()
-                        val shortcuts by viewModel.allShortcuts.collectAsStateWithLifecycle()
-                        val showNewsSection by viewModel.showNewsSection.collectAsStateWithLifecycle()
-
-                        val playlistVideos = remember(capturedMedia) {
-                            capturedMedia.filter { it.isSaved && it.type == "video" }
-                        }
-
-                        // Show beautiful, animated native page
-                        MockDineInStylePage(
-                            wallpaperUrl = wallpaperUrl,
-                            shortcuts = shortcuts,
-                            showNewsSection = showNewsSection,
-                            onShowNewsSectionChange = { show ->
-                                viewModel.updateShowNewsSection(show)
-                            },
-                            onShortcutClicked = { url ->
-                                viewModel.loadUrl(url)
-                            },
-                            onAddShortcut = { title, url, iconUrl ->
-                                viewModel.addShortcut(title, url, iconUrl)
-                            },
-                            onDeleteShortcut = { id ->
-                                viewModel.deleteShortcut(id)
-                            },
-                            onUpdateShortcut = { id, title, url, iconUrl ->
-                                viewModel.updateShortcut(id, title, url, iconUrl)
-                            },
-                            onWallpaperChanged = { url ->
-                                viewModel.updateWallpaperUrl(url)
-                            },
-                            onProductClicked = { productName ->
-                                viewModel.loadUrl("https://www.google.com/search?q=buy+$productName")
-                            },
-                            chromeThemeActive = chromeThemeActive,
-                            chromeThemeNtpBgColor = chromeThemeNtpBgColor,
-                            chromeThemeNtpTextColor = chromeThemeNtpTextColor,
-                            chromeThemeNtpBgPath = chromeThemeNtpBgPath,
-                            playlistVideos = playlistVideos,
-                            onPlayVideo = { video ->
-                                viewModel.setUcPlayerVideoUrl(video.url)
-                                viewModel.setUcPlayerVideoTitle(video.pageTitle)
-                                viewModel.setUcPlayerActive(true)
-                            },
-                            onDeleteVideo = { id ->
-                                viewModel.deleteMedia(id)
-                            }
+                AnimatedContent(
+                    targetState = activeTabId,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium, dampingRatio = Spring.DampingRatioNoBouncy)) +
+                         scaleIn(initialScale = 0.97f, animationSpec = spring(stiffness = Spring.StiffnessMedium, dampingRatio = Spring.DampingRatioNoBouncy)))
+                        .togetherWith(
+                            fadeOut(animationSpec = tween(120)) +
+                            scaleOut(targetScale = 1.03f, animationSpec = tween(120))
                         )
-                    } else {
-                        // Check if tab is sensitive (locked) and needs authentication
-                        val unlockedTabIds by viewModel.unlockedTabIds.collectAsStateWithLifecycle()
-                        val isLocked = activeTab.isLocked && !unlockedTabIds.contains(activeTab.id)
+                    },
+                    label = "tab_transition",
+                    modifier = Modifier.fillMaxSize()
+                ) { targetTabId ->
+                    val targetTab = allTabs.find { it.id == targetTabId }
+                    if (targetTab != null) {
+                        if (targetTab.url == "dineinstyle.com") {
+                            val wallpaperUrl by viewModel.customWallpaperUrl.collectAsStateWithLifecycle()
+                            val shortcuts by viewModel.allShortcuts.collectAsStateWithLifecycle()
+                            val showNewsSection by viewModel.showNewsSection.collectAsStateWithLifecycle()
 
-                        if (isLocked) {
-                            LockedTabScreen(
-                                tabId = activeTab.id,
-                                tabTitle = activeTab.title,
-                                onAuthenticate = { viewModel.unlockTab(activeTab.id) }
+                            val playlistVideos = remember(capturedMedia) {
+                                capturedMedia.filter { it.isSaved && it.type == "video" }
+                            }
+
+                            // Show beautiful, animated native page
+                            MockDineInStylePage(
+                                wallpaperUrl = wallpaperUrl,
+                                shortcuts = shortcuts,
+                                showNewsSection = showNewsSection,
+                                onShowNewsSectionChange = { show ->
+                                    viewModel.updateShowNewsSection(show)
+                                },
+                                onShortcutClicked = { url ->
+                                    viewModel.loadUrl(url)
+                                },
+                                onAddShortcut = { title, url, iconUrl ->
+                                    viewModel.addShortcut(title, url, iconUrl)
+                                },
+                                onDeleteShortcut = { id ->
+                                    viewModel.deleteShortcut(id)
+                                },
+                                onUpdateShortcut = { id, title, url, iconUrl ->
+                                    viewModel.updateShortcut(id, title, url, iconUrl)
+                                },
+                                onWallpaperChanged = { url ->
+                                    viewModel.updateWallpaperUrl(url)
+                                },
+                                onProductClicked = { productName ->
+                                    viewModel.loadUrl("https://www.google.com/search?q=buy+$productName")
+                                },
+                                chromeThemeActive = chromeThemeActive,
+                                chromeThemeNtpBgColor = chromeThemeNtpBgColor,
+                                chromeThemeNtpTextColor = chromeThemeNtpTextColor,
+                                chromeThemeNtpBgPath = chromeThemeNtpBgPath,
+                                playlistVideos = playlistVideos,
+                                onPlayVideo = { video ->
+                                    viewModel.setUcPlayerVideoUrl(video.url)
+                                    viewModel.setUcPlayerVideoTitle(video.pageTitle)
+                                    viewModel.setUcPlayerActive(true)
+                                },
+                                onDeleteVideo = { id ->
+                                    viewModel.deleteMedia(id)
+                                }
                             )
                         } else {
-                            // Show standard WebView with real content and adblock
-                            TabWebView(
-                                tabId = activeTab.id,
-                                url = activeTab.url,
-                                viewModel = viewModel,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            // Check if tab is sensitive (locked) and needs authentication
+                            val unlockedTabIds by viewModel.unlockedTabIds.collectAsStateWithLifecycle()
+                            val isLocked = targetTab.isLocked && !unlockedTabIds.contains(targetTab.id)
+
+                            if (isLocked) {
+                                LockedTabScreen(
+                                    tabId = targetTab.id,
+                                    tabTitle = targetTab.title,
+                                    onAuthenticate = { viewModel.unlockTab(targetTab.id) }
+                                )
+                            } else {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    // Show standard WebView with real content and adblock
+                                    TabWebView(
+                                        tabId = targetTab.id,
+                                        url = targetTab.url,
+                                        viewModel = viewModel,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+
+                                    // Skeleton loading instead of blank screen
+                                    val loadingProgress = viewModel.loadingProgressMap.collectAsStateWithLifecycle().value[targetTab.id] ?: 100
+                                    if (loadingProgress < 100 && targetTab.url != "dineinstyle.com") {
+                                        WebSkeletonLoader(
+                                            isDark = isDarkTheme,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    }
-                } else {
-                    // Empty state if tabs are loading
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    } else {
+                        // Empty state if tabs are loading
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
             }
@@ -1660,11 +1751,23 @@ fun BrowserScreen(
         }
 
         // --- 8. UC Premium Video Player Intercept Floating Corner Icon ---
-        val latestVideo = capturedMedia.lastOrNull { it.type == "video" }
+        val latestVideo = remember(capturedMedia, activeTab?.url) {
+            if (activeTab?.url == null) null
+            else capturedMedia.lastOrNull {
+                it.type == "video" && (
+                    it.pageUrl == activeTab.url ||
+                    it.pageUrl.trimEnd('/') == activeTab.url.trimEnd('/') ||
+                    (it.pageUrl.isNotBlank() && activeTab.url.contains(it.pageUrl)) ||
+                    (activeTab.url.isNotBlank() && it.pageUrl.contains(activeTab.url))
+                )
+            }
+        }
         var dismissVideoToast by remember { mutableStateOf(false) }
         LaunchedEffect(activeTab?.url) {
             dismissVideoToast = false
         }
+
+        var dismissCurrentUrlVideo by remember(activeTab?.url) { mutableStateOf(false) }
 
         var videoIconVisible by remember { mutableStateOf(false) }
         LaunchedEffect(latestVideo) {
@@ -1675,7 +1778,7 @@ fun BrowserScreen(
             }
         }
 
-        val showCornerIcon = videoIconVisible
+        val showCornerIcon = videoIconVisible && !dismissCurrentUrlVideo
         var showPlayerOptionsMenu by remember { mutableStateOf(false) }
 
         AnimatedVisibility(
@@ -1698,10 +1801,10 @@ fun BrowserScreen(
                     exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
                 ) {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         shape = RoundedCornerShape(24.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
                         modifier = Modifier.height(48.dp)
                     ) {
                         Row(
@@ -1719,13 +1822,13 @@ fun BrowserScreen(
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
                                     contentDescription = "Play in Background",
-                                    tint = Color(0xFF6366F1)
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                             
                             // Vertical Separator
-                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray.copy(alpha = 0.6f)))
-
+                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+ 
                             // Option 2: Add to Queue
                             IconButton(onClick = {
                                 latestVideo?.let {
@@ -1737,13 +1840,13 @@ fun BrowserScreen(
                                 Icon(
                                     imageVector = Icons.Default.PlaylistAdd,
                                     contentDescription = "Queue Video",
-                                    tint = Color(0xFFEC4899)
+                                    tint = MaterialTheme.colorScheme.secondary
                                 )
                             }
                             
                             // Vertical Separator
-                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray.copy(alpha = 0.6f)))
-
+                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+ 
                             // Option 3: Fullscreen / Expand
                             IconButton(onClick = {
                                 latestVideo?.let {
@@ -1756,13 +1859,13 @@ fun BrowserScreen(
                                 Icon(
                                     imageVector = Icons.Default.OpenInFull,
                                     contentDescription = "Fullscreen Player",
-                                    tint = Color(0xFF3B82F6)
+                                    tint = MaterialTheme.colorScheme.tertiary
                                 )
                             }
-
+ 
                             // Vertical Separator
-                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray.copy(alpha = 0.6f)))
-
+                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+ 
                             // Option 4: Download
                             IconButton(onClick = {
                                 latestVideo?.let {
@@ -1775,17 +1878,32 @@ fun BrowserScreen(
                                     tint = Color(0xFF10B981)
                                 )
                             }
+
+                            // Vertical Separator
+                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+
+                            // Option 5: Dismiss / Close
+                            IconButton(onClick = {
+                                dismissCurrentUrlVideo = true
+                                showPlayerOptionsMenu = false
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Hide Icon",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
                 }
-
+ 
                 // Core Floating Play Toggle Button
                 Box(
                     modifier = Modifier
                         .shadow(12.dp, CircleShape)
                         .background(
                             brush = Brush.linearGradient(
-                                colors = listOf(Color(0xFF6366F1), Color(0xFFEC4899))
+                                colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
                             ),
                             shape = CircleShape
                         )
@@ -1797,7 +1915,7 @@ fun BrowserScreen(
                     Box(
                         modifier = Modifier
                             .size(56.dp)
-                            .background(Color(0xFF0F172A), CircleShape),
+                            .background(MaterialTheme.colorScheme.surface, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         val infiniteTransition = rememberInfiniteTransition(label = "pulsing")
@@ -1819,18 +1937,18 @@ fun BrowserScreen(
                             ),
                             label = "alpha"
                         )
-
+ 
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .scale(pulseScale)
-                                .background(Color(0xFF6366F1).copy(alpha = pulseAlpha), CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha), CircleShape)
                         )
-
+ 
                         Icon(
                             imageVector = Icons.Default.PlayCircle,
                             contentDescription = "Intercept Media Stream",
-                            tint = Color(0xFF6366F1),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(34.dp)
                         )
                     }
@@ -2293,58 +2411,66 @@ fun AddressBar(
         else -> androidx.compose.foundation.isSystemInDarkTheme()
     }
     val barBgColor = if (chromeThemeActive) {
-        Color(chromeThemeToolbarColor).copy(alpha = 0.95f)
+        Color(chromeThemeToolbarColor).copy(alpha = 0.92f)
     } else if (isDarkTheme) {
-        if (themeMode == "amoled") Color(0xFF121212).copy(alpha = 0.95f) else Color(0xFF1E293B).copy(alpha = 0.95f)
+        if (themeMode == "amoled") Color(0xFF09090B).copy(alpha = 0.90f) else Color(0xFF1E293B).copy(alpha = 0.92f)
     } else {
-        Color.White.copy(alpha = 0.95f)
+        Color.White.copy(alpha = 0.92f)
     }
     val contentColor = if (chromeThemeActive) Color(chromeThemeTextColor) else if (isDarkTheme) Color.White else Color.Black
-    val disabledColor = if (chromeThemeActive) Color(chromeThemeInactiveTextColor).copy(alpha = 0.5f) else if (isDarkTheme) Color.DarkGray else Color.LightGray
-    val fieldBgColor = if (chromeThemeActive) Color(chromeThemeTextColor).copy(alpha = 0.1f) else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.05f)
+    val disabledColor = if (chromeThemeActive) Color(chromeThemeInactiveTextColor).copy(alpha = 0.4f) else if (isDarkTheme) Color(0xFF475569) else Color(0xFFCBD5E1)
+    val fieldBgColor = if (chromeThemeActive) Color(chromeThemeTextColor).copy(alpha = 0.08f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.04f)
     val textOrUrlColor = if (url.isEmpty() || url == "dineinstyle.com") Color.Gray else contentColor
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(10.dp, RoundedCornerShape(20.dp), spotColor = Color.Black.copy(alpha = 0.15f)),
-        shape = RoundedCornerShape(20.dp),
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(24.dp),
+                spotColor = if (isDarkTheme) Color.Black else Color.Black.copy(alpha = 0.15f)
+            ),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = barBgColor
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Loading Progress Bar
+            // Sleeker Premium Progress Bar
             if (loadingProgress in 1..99) {
                 LinearProgressIndicator(
                     progress = { loadingProgress / 100f },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(2.dp),
-                    color = Color(0xFFD4E157),
+                        .height(3.dp),
+                    color = Color(0xFF0284C7), // Sleeker premium blue loading indicator
                     trackColor = Color.Transparent
                 )
             } else {
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Back Button
                 AnimatedIconButton(
                     onClick = onBackClick,
                     enabled = canGoBack,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(34.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowLeft,
                         contentDescription = "Back",
                         tint = if (canGoBack) contentColor else disabledColor,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
@@ -2352,13 +2478,13 @@ fun AddressBar(
                 AnimatedIconButton(
                     onClick = onForwardClick,
                     enabled = canGoForward,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(34.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowRight,
                         contentDescription = "Forward",
                         tint = if (canGoForward) contentColor else disabledColor,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
@@ -2368,9 +2494,14 @@ fun AddressBar(
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .height(38.dp)
-                        .background(fieldBgColor, RoundedCornerShape(19.dp))
-                        .clip(RoundedCornerShape(19.dp))
+                        .height(40.dp)
+                        .background(fieldBgColor, RoundedCornerShape(20.dp))
+                        .border(
+                            width = 0.5.dp,
+                            color = if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.03f),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                        .clip(RoundedCornerShape(20.dp))
                         .clickable { onAddressBarClick() }
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -2389,20 +2520,20 @@ fun AddressBar(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .padding(end = 6.dp)
-                                .background(Color(0xFF6366F1).copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                                .border(1.dp, Color(0xFF6366F1).copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .background(Color(0xFF0284C7).copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFF0284C7).copy(alpha = 0.3f), RoundedCornerShape(12.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AccessTime,
                                 contentDescription = "Read Time",
-                                tint = Color(0xFF818CF8),
+                                tint = Color(0xFF38BDF8),
                                 modifier = Modifier.size(10.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = "$activeTabReadTime min",
-                                color = Color(0xFF818CF8),
+                                color = Color(0xFF38BDF8),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -2443,21 +2574,26 @@ fun AddressBar(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    // Shield / Ad Blocker status indicator (Blue circle badge with check/bolt inside)
-                    AnimatedIconButton(
-                        onClick = onShieldClick,
+                    // Shield / Ad Blocker status indicator (Emerald/Teal glowing badge when active)
+                    Box(
                         modifier = Modifier
                             .size(24.dp)
+                            .clip(CircleShape)
                             .background(
-                                if (isAdBlockerActive && blockedAdsCount > 0) Color(0xFF1E88E5) else contentColor.copy(alpha = 0.2f),
-                                CircleShape
+                                if (isAdBlockerActive) {
+                                    if (blockedAdsCount > 0) Color(0xFF0EA5E9) else Color(0xFF10B981)
+                                } else {
+                                    contentColor.copy(alpha = 0.15f)
+                                }
                             )
-                            .testTag("shield_badge_btn")
+                            .clickable { onShieldClick() }
+                            .testTag("shield_badge_btn"),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (isAdBlockerActive) Icons.Default.ElectricBolt else Icons.Default.Shield,
                             contentDescription = "Ad Blocker Status",
-                            tint = Color.White,
+                            tint = if (isAdBlockerActive) Color.White else contentColor.copy(alpha = 0.5f),
                             modifier = Modifier.size(13.dp)
                         )
                     }
@@ -2853,6 +2989,15 @@ fun AdBlockerPanel(
     var showRoutingSettings by remember { mutableStateOf(false) }
     var activeTabIdx by remember { mutableStateOf(0) }
 
+    val isDark = isSystemInDarkTheme() || viewModel.themeMode.value != "light"
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    val outlineColor = MaterialTheme.colorScheme.outline
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+
     val domain = remember(currentUrl) {
         try {
             val uri = java.net.URI(currentUrl)
@@ -2869,8 +3014,9 @@ fun AdBlockerPanel(
             .shadow(16.dp, RoundedCornerShape(24.dp), spotColor = Color.Black.copy(alpha = 0.2f)),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        )
+            containerColor = surfaceColor
+        ),
+        border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.15f))
     ) {
         Column(
             modifier = Modifier
@@ -2883,7 +3029,7 @@ fun AdBlockerPanel(
                 modifier = Modifier
                     .width(36.dp)
                     .height(4.dp)
-                    .background(Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
+                    .background(outlineColor.copy(alpha = 0.3f), RoundedCornerShape(2.dp))
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -2892,7 +3038,7 @@ fun AdBlockerPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFF1F5F9), RoundedCornerShape(12.dp))
+                    .background(surfaceVariantColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -2902,14 +3048,14 @@ fun AdBlockerPanel(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) Color(0xFF1E293B) else Color.Transparent)
+                            .background(if (isSelected) primaryColor else Color.Transparent)
                             .clickable { activeTabIdx = index }
                             .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = title,
-                            color = if (isSelected) Color.White else Color(0xFF64748B),
+                            color = if (isSelected) onPrimaryColor else onSurfaceVariantColor,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         )
@@ -2934,13 +3080,13 @@ fun AdBlockerPanel(
                             modifier = Modifier
                                 .size(54.dp)
                                 .background(
-                                    if (adBlockerOn) Color(0xFFE8F5E9) else Color(0xFFF5F5F5),
+                                    if (adBlockerOn) primaryColor.copy(alpha = 0.12f) else surfaceVariantColor,
                                     CircleShape
                                 )
                                 .clickable(onClick = onToggleAdBlocker)
                                 .border(
                                     1.5.dp,
-                                    if (adBlockerOn) Color(0xFF81C784) else Color.LightGray.copy(alpha = 0.5f),
+                                    if (adBlockerOn) primaryColor else outlineColor.copy(alpha = 0.3f),
                                     CircleShape
                                 ),
                             contentAlignment = Alignment.Center
@@ -2948,7 +3094,7 @@ fun AdBlockerPanel(
                             Icon(
                                 imageVector = Icons.Default.PowerSettingsNew,
                                 contentDescription = "Ad Blocker Toggle",
-                                tint = if (adBlockerOn) Color(0xFF4CAF50) else Color.DarkGray,
+                                tint = if (adBlockerOn) primaryColor else onSurfaceVariantColor,
                                 modifier = Modifier.size(26.dp)
                             )
                         }
@@ -2961,20 +3107,20 @@ fun AdBlockerPanel(
                                     text = if (adBlockerOn) "$blockedCount" else "0",
                                     fontSize = 28.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (adBlockerOn) Color(0xFFE53935) else Color.Gray
+                                    color = if (adBlockerOn) MaterialTheme.colorScheme.error else onSurfaceVariantColor
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "uBlock Ads Blocked",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color.Black
+                                    color = onSurfaceColor
                                 )
                             }
                             Text(
                                 text = "on this website (Ultra Shield active)",
                                 fontSize = 12.sp,
-                                color = Color.Gray
+                                color = onSurfaceVariantColor
                             )
                         }
                     }
@@ -2983,8 +3129,10 @@ fun AdBlockerPanel(
                         checked = adBlockerOn,
                         onCheckedChange = { onToggleAdBlocker() },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFFE53935)
+                            checkedThumbColor = onPrimaryColor,
+                            checkedTrackColor = primaryColor,
+                            uncheckedThumbColor = outlineColor,
+                            uncheckedTrackColor = surfaceVariantColor
                         )
                     )
                 }
@@ -2995,15 +3143,15 @@ fun AdBlockerPanel(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                    colors = CardDefaults.cardColors(containerColor = surfaceVariantColor.copy(alpha = 0.3f)),
+                    border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.12f))
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             text = "🕵️ Page Resource Inspector Estimates",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E293B)
+                            color = onSurfaceColor
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
@@ -3011,12 +3159,12 @@ fun AdBlockerPanel(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
-                                Text("Blocked Trackers: ${if (adBlockerOn) blockedCount else 0}", fontSize = 10.sp, color = Color(0xFF475569))
-                                Text("Scripts Analyzed: 14", fontSize = 10.sp, color = Color(0xFF475569))
+                                Text("Blocked Trackers: ${if (adBlockerOn) blockedCount else 0}", fontSize = 10.sp, color = onSurfaceVariantColor)
+                                Text("Scripts Analyzed: 14", fontSize = 10.sp, color = onSurfaceVariantColor)
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text("Data Saved: ~${if (adBlockerOn) (blockedCount * 45).toString() + " KB" else "0 KB"}", fontSize = 10.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
-                                Text("Battery Impact: Very Low", fontSize = 10.sp, color = Color(0xFF475569))
+                                Text("Data Saved: ~${if (adBlockerOn) (blockedCount * 45).toString() + " KB" else "0 KB"}", fontSize = 10.sp, color = primaryColor, fontWeight = FontWeight.Bold)
+                                Text("Battery Impact: Very Low", fontSize = 10.sp, color = onSurfaceVariantColor)
                             }
                         }
                     }
@@ -3042,13 +3190,13 @@ fun AdBlockerPanel(
                             text = "uBlock Engine features",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color.DarkGray
+                            color = onSurfaceVariantColor
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(
                             imageVector = if (showAdvancedSettings) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                             contentDescription = "Toggle advanced settings",
-                            tint = Color.Gray,
+                            tint = onSurfaceVariantColor,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -3063,7 +3211,7 @@ fun AdBlockerPanel(
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
-                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
+                HorizontalDivider(color = outlineColor.copy(alpha = 0.15f))
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // Expandable Private & Custom DNS Settings
@@ -3083,7 +3231,7 @@ fun AdBlockerPanel(
                         Icon(
                             imageVector = Icons.Default.Dns,
                             contentDescription = "DNS Settings Icon",
-                            tint = if (dnsEnabled) Color(0xFF4CAF50) else Color.DarkGray,
+                            tint = if (dnsEnabled) primaryColor else onSurfaceVariantColor,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -3091,13 +3239,13 @@ fun AdBlockerPanel(
                             text = "Private & Custom DNS Servers",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = if (dnsEnabled) Color(0xFF4CAF50) else Color.DarkGray
+                            color = if (dnsEnabled) primaryColor else onSurfaceVariantColor
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(
                             imageVector = if (showDnsSettings) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                             contentDescription = "Toggle DNS settings",
-                            tint = Color.Gray,
+                            tint = onSurfaceVariantColor,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -3114,19 +3262,24 @@ fun AdBlockerPanel(
                                     text = "Enable Custom DNS Engine",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black
+                                    color = onSurfaceColor
                                 )
                                 Text(
                                     text = "Route connections via secure servers to bypass blocks.",
                                     fontSize = 9.sp,
-                                    color = Color.Gray
+                                    color = onSurfaceVariantColor
                                 )
                             }
                             Switch(
                                 checked = dnsEnabled,
                                 onCheckedChange = { onDnsEnabledChange(it) },
                                 modifier = Modifier.scale(0.8f),
-                                colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF4CAF50))
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = onPrimaryColor,
+                                    checkedTrackColor = primaryColor,
+                                    uncheckedThumbColor = outlineColor,
+                                    uncheckedTrackColor = surfaceVariantColor
+                                )
                             )
                         }
 
@@ -3135,7 +3288,7 @@ fun AdBlockerPanel(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
+                                    .background(surfaceVariantColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                     .padding(4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -3145,7 +3298,7 @@ fun AdBlockerPanel(
                                         modifier = Modifier
                                             .weight(1f)
                                             .background(
-                                                color = if (isSelected) Color.White else Color.Transparent,
+                                                color = if (isSelected) surfaceColor else Color.Transparent,
                                                 shape = RoundedCornerShape(6.dp)
                                             )
                                             .clickable { onDnsModeChange(modeKey) }
@@ -3156,7 +3309,7 @@ fun AdBlockerPanel(
                                             text = modeTitle,
                                             fontSize = 10.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) Color.Black else Color.Gray
+                                            color = if (isSelected) onSurfaceColor else onSurfaceVariantColor
                                         )
                                     }
                                 }
@@ -3176,11 +3329,11 @@ fun AdBlockerPanel(
                                                 .fillMaxWidth()
                                                 .border(
                                                     width = 1.dp,
-                                                    color = if (isSelected) Color(0xFF4CAF50).copy(alpha = 0.5f) else Color.LightGray.copy(alpha = 0.4f),
+                                                    color = if (isSelected) primaryColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.2f),
                                                     shape = RoundedCornerShape(8.dp)
                                                 )
                                                 .background(
-                                                    color = if (isSelected) Color(0xFFE8F5E9) else Color.Transparent,
+                                                    color = if (isSelected) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
                                                     shape = RoundedCornerShape(8.dp)
                                                 )
                                                 .clickable { onDnsPresetIdChange(preset.id) }
@@ -3188,11 +3341,11 @@ fun AdBlockerPanel(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(preset.name, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                                                Text("Fallback: ${preset.fallbackIp}", fontSize = 8.sp, color = Color.Gray)
+                                                Text(preset.name, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
+                                                Text("Fallback: ${preset.fallbackIp}", fontSize = 8.sp, color = onSurfaceVariantColor)
                                             }
                                             if (isSelected) {
-                                                Icon(Icons.Default.CheckCircle, "Selected", tint = Color(0xFF4CAF50), modifier = Modifier.size(14.dp))
+                                                Icon(Icons.Default.CheckCircle, "Selected", tint = primaryColor, modifier = Modifier.size(14.dp))
                                             }
                                         }
                                     }
@@ -3210,7 +3363,7 @@ fun AdBlockerPanel(
                                     trailingIcon = {
                                         if (tempCustomDns != dnsCustomValue) {
                                             IconButton(onClick = { onDnsCustomValueChange(tempCustomDns) }) {
-                                                Icon(Icons.Default.Check, "Apply", tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
+                                                Icon(Icons.Default.Check, "Apply", tint = primaryColor, modifier = Modifier.size(16.dp))
                                             }
                                         }
                                     }
@@ -3221,7 +3374,7 @@ fun AdBlockerPanel(
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
-                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
+                HorizontalDivider(color = outlineColor.copy(alpha = 0.15f))
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // Expandable Private & Custom Smart Routing
@@ -3241,7 +3394,7 @@ fun AdBlockerPanel(
                         Icon(
                             imageVector = Icons.Default.Shield,
                             contentDescription = "Smart Auto-Routing Icon",
-                            tint = if (smartAutoRouting) Color(0xFFE53935) else Color.DarkGray,
+                            tint = if (smartAutoRouting) primaryColor else onSurfaceVariantColor,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -3249,13 +3402,13 @@ fun AdBlockerPanel(
                             text = "Smart Auto-Routing System",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = if (smartAutoRouting) Color(0xFFE53935) else Color.DarkGray
+                            color = if (smartAutoRouting) primaryColor else onSurfaceVariantColor
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(
                             imageVector = if (showRoutingSettings) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                             contentDescription = "Toggle Routing settings",
-                            tint = Color.Gray,
+                            tint = onSurfaceVariantColor,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -3272,19 +3425,24 @@ fun AdBlockerPanel(
                                     text = "Enable Smart Auto-Routing",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.Black
+                                    color = onSurfaceColor
                                 )
                                 Text(
                                     text = "Auto-detects and bypasses errors via secure proxies.",
                                     fontSize = 9.sp,
-                                    color = Color.Gray
+                                    color = onSurfaceVariantColor
                                 )
                             }
                             Switch(
                                 checked = smartAutoRouting,
                                 onCheckedChange = { onSmartAutoRoutingChange(it) },
                                 modifier = Modifier.scale(0.8f),
-                                colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFFE53935))
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = onPrimaryColor,
+                                    checkedTrackColor = primaryColor,
+                                    uncheckedThumbColor = outlineColor,
+                                    uncheckedTrackColor = surfaceVariantColor
+                                )
                             )
                         }
 
@@ -3292,8 +3450,8 @@ fun AdBlockerPanel(
                             Spacer(modifier = Modifier.height(6.dp))
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                colors = CardDefaults.cardColors(containerColor = surfaceVariantColor.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.12f)),
                                 shape = RoundedCornerShape(10.dp)
                             ) {
                                 Column(modifier = Modifier.padding(10.dp)) {
@@ -3304,19 +3462,19 @@ fun AdBlockerPanel(
                                         Box(
                                             modifier = Modifier
                                                 .size(6.dp)
-                                                .background(Color(0xFF4CAF50), CircleShape)
+                                                .background(primaryColor, CircleShape)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = "Status: $activeRoutingStatus",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.Black
+                                            color = onSurfaceColor
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text("• Onion Gateway: Active (.onion to Tor Web Bridge)", fontSize = 9.sp, color = Color.DarkGray)
-                                    Text("• Fallback: Active (CroxyProxy secure routing rotation)", fontSize = 9.sp, color = Color.DarkGray)
+                                    Text("• Onion Gateway: Active (.onion to Tor Web Bridge)", fontSize = 9.sp, color = onSurfaceVariantColor)
+                                    Text("• Fallback: Active (CroxyProxy secure routing rotation)", fontSize = 9.sp, color = onSurfaceVariantColor)
                                 }
                             }
                         }
@@ -3332,18 +3490,18 @@ fun AdBlockerPanel(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                        colors = CardDefaults.cardColors(containerColor = surfaceVariantColor.copy(alpha = 0.3f)),
+                        border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.12f))
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Public, "Web site profile", tint = Color(0xFF3B82F6), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Public, "Web site profile", tint = primaryColor, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Per-Site Profile: $domain",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1E293B)
+                                    color = onSurfaceColor
                                 )
                             }
 
@@ -3357,8 +3515,8 @@ fun AdBlockerPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
-                                    Text("Custom Page Zoom", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                                    Text("Overrides global page scale.", fontSize = 9.sp, color = Color.Gray)
+                                    Text("Custom Page Zoom", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
+                                    Text("Overrides global page scale.", fontSize = 9.sp, color = onSurfaceVariantColor)
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(
@@ -3368,16 +3526,16 @@ fun AdBlockerPanel(
                                                 viewModel.setSiteZoom(domain, siteZoomVal)
                                             }
                                         },
-                                        modifier = Modifier.size(28.dp).background(Color(0xFFE2E8F0), CircleShape)
+                                        modifier = Modifier.size(28.dp).background(surfaceVariantColor, CircleShape)
                                     ) {
-                                        Text("-", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                        Text("-", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
                                         text = "${(siteZoomVal * 100).toInt()}%",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.Black,
+                                        color = onSurfaceColor,
                                         modifier = Modifier.widthIn(min = 36.dp),
                                         textAlign = TextAlign.Center
                                     )
@@ -3389,15 +3547,15 @@ fun AdBlockerPanel(
                                                 viewModel.setSiteZoom(domain, siteZoomVal)
                                             }
                                         },
-                                        modifier = Modifier.size(28.dp).background(Color(0xFFE2E8F0), CircleShape)
+                                        modifier = Modifier.size(28.dp).background(surfaceVariantColor, CircleShape)
                                     ) {
-                                        Text("+", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                        Text("+", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
                                     }
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = Color.LightGray.copy(alpha = 0.2f))
+                            HorizontalDivider(color = outlineColor.copy(alpha = 0.15f))
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // Custom Site Force Dark Mode
@@ -3408,8 +3566,8 @@ fun AdBlockerPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
-                                    Text("Force Site Dark Mode", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                                    Text("Inverts background colors locally.", fontSize = 9.sp, color = Color.Gray)
+                                    Text("Force Site Dark Mode", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
+                                    Text("Inverts background colors locally.", fontSize = 9.sp, color = onSurfaceVariantColor)
                                 }
                                 Switch(
                                     checked = siteDarkOn,
@@ -3418,12 +3576,17 @@ fun AdBlockerPanel(
                                         viewModel.setSiteForceDark(domain, it)
                                     },
                                     modifier = Modifier.scale(0.8f),
-                                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF3B82F6))
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = onPrimaryColor,
+                                        checkedTrackColor = primaryColor,
+                                        uncheckedThumbColor = outlineColor,
+                                        uncheckedTrackColor = surfaceVariantColor
+                                    )
                                 )
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = Color.LightGray.copy(alpha = 0.2f))
+                            HorizontalDivider(color = outlineColor.copy(alpha = 0.15f))
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // Custom Site Page Scripts Allowed
@@ -3434,8 +3597,8 @@ fun AdBlockerPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
-                                    Text("Enable Custom Scripts", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                                    Text("Run user JS files on page load.", fontSize = 9.sp, color = Color.Gray)
+                                    Text("Enable Custom Scripts", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
+                                    Text("Run user JS files on page load.", fontSize = 9.sp, color = onSurfaceVariantColor)
                                 }
                                 Switch(
                                     checked = siteScriptsOn,
@@ -3444,28 +3607,39 @@ fun AdBlockerPanel(
                                         viewModel.setSiteScriptsEnabled(domain, it)
                                     },
                                     modifier = Modifier.scale(0.8f),
-                                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF3B82F6))
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = onPrimaryColor,
+                                        checkedTrackColor = primaryColor,
+                                        uncheckedThumbColor = outlineColor,
+                                        uncheckedTrackColor = surfaceVariantColor
+                                    )
                                 )
                             }
                         }
                     }
 
                     // 2. Reality Filters Section
+                    val pinkCardBg = if (isDark) surfaceVariantColor.copy(alpha = 0.3f) else Color(0xFFFDF2F8)
+                    val pinkCardBorder = if (isDark) outlineColor.copy(alpha = 0.12f) else Color(0xFFFCE7F3)
+                    val pinkHeaderColor = if (isDark) primaryColor else Color(0xFFEC4899)
+                    val pinkTitleColor = if (isDark) onSurfaceColor else Color(0xFF831843)
+                    val pinkDescColor = if (isDark) onSurfaceVariantColor else Color(0xFF9D174D)
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF2F8)),
-                        border = BorderStroke(1.dp, Color(0xFFFCE7F3))
+                        colors = CardDefaults.cardColors(containerColor = pinkCardBg),
+                        border = BorderStroke(1.dp, pinkCardBorder)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.FilterAlt, "Reality Filters", tint = Color(0xFFEC4899), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.FilterAlt, "Reality Filters", tint = pinkHeaderColor, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Reality Lens Filters",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF831843)
+                                    color = pinkTitleColor
                                 )
                             }
 
@@ -3479,19 +3653,24 @@ fun AdBlockerPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Anti-Clickbait Lens", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF831843))
-                                    Text("Minimizes sensational headlines and titles.", fontSize = 9.sp, color = Color(0xFF9D174D))
+                                    Text("Anti-Clickbait Lens", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = pinkTitleColor)
+                                    Text("Minimizes sensational headlines and titles.", fontSize = 9.sp, color = pinkDescColor)
                                 }
                                 Switch(
                                     checked = clickbaitOn,
                                     onCheckedChange = { viewModel.setRealityClickbaitFilter(!clickbaitOn) },
                                     modifier = Modifier.scale(0.8f),
-                                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFFEC4899))
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = onPrimaryColor,
+                                        checkedTrackColor = pinkHeaderColor,
+                                        uncheckedThumbColor = outlineColor,
+                                        uncheckedTrackColor = surfaceVariantColor
+                                    )
                                 )
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = Color(0xFFFCE7F3))
+                            HorizontalDivider(color = pinkCardBorder)
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // Sponsored Content Blocker
@@ -3502,19 +3681,24 @@ fun AdBlockerPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Block Sponsored / Promoted Feed Blocks", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF831843))
-                                    Text("Hides native ads, sponsored tags, and feeds.", fontSize = 9.sp, color = Color(0xFF9D174D))
+                                    Text("Block Sponsored / Promoted Feed Blocks", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = pinkTitleColor)
+                                    Text("Hides native ads, sponsored tags, and feeds.", fontSize = 9.sp, color = pinkDescColor)
                                 }
                                 Switch(
                                     checked = sponsoredOn,
                                     onCheckedChange = { viewModel.setRealitySponsoredBlock(!sponsoredOn) },
                                     modifier = Modifier.scale(0.8f),
-                                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFFEC4899))
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = onPrimaryColor,
+                                        checkedTrackColor = pinkHeaderColor,
+                                        uncheckedThumbColor = outlineColor,
+                                        uncheckedTrackColor = surfaceVariantColor
+                                    )
                                 )
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = Color(0xFFFCE7F3))
+                            HorizontalDivider(color = pinkCardBorder)
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // AI content detector badge
@@ -3525,14 +3709,19 @@ fun AdBlockerPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("AI-Generated Content Detector", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF831843))
-                                    Text("Injects a smart warning on potential AI text.", fontSize = 9.sp, color = Color(0xFF9D174D))
+                                    Text("AI-Generated Content Detector", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = pinkTitleColor)
+                                    Text("Injects a smart warning on potential AI text.", fontSize = 9.sp, color = pinkDescColor)
                                 }
                                 Switch(
                                     checked = aiBadgeOn,
                                     onCheckedChange = { viewModel.setRealityAiBadge(!aiBadgeOn) },
                                     modifier = Modifier.scale(0.8f),
-                                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFFEC4899))
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = onPrimaryColor,
+                                        checkedTrackColor = pinkHeaderColor,
+                                        uncheckedThumbColor = outlineColor,
+                                        uncheckedTrackColor = surfaceVariantColor
+                                    )
                                 )
                             }
                         }
@@ -4355,9 +4544,39 @@ fun TabSingleCard(
         BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.25f))
     }
 
+    var swipeOffset by remember { mutableStateOf(0f) }
+    val animatedSwipeOffset by animateFloatAsState(
+        targetValue = swipeOffset,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "swipeOffset"
+    )
+    val swipeAlpha = (1f - (kotlin.math.abs(animatedSwipeOffset) / 300f)).coerceIn(0.1f, 1f)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                translationX = animatedSwipeOffset
+                alpha = swipeAlpha
+            }
+            .pointerInput(tab.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (kotlin.math.abs(swipeOffset) > 200f) {
+                            onClosed()
+                        } else {
+                            swipeOffset = 0f
+                        }
+                    },
+                    onDragCancel = {
+                        swipeOffset = 0f
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        swipeOffset += dragAmount
+                    }
+                )
+            }
             .clickable { onSelected() }
     ) {
         // Pill Header matching the design of single tabs in the image
@@ -16241,6 +16460,136 @@ fun WebsiteUpdatesDialog(
                     shape = RoundedCornerShape(100.dp)
                 ) {
                     Text("Close", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WebSkeletonLoader(
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    val bgColor = if (isDark) Color(0xFF030712) else Color(0xFFF8FAFC)
+    val itemColor = if (isDark) Color(0xFF1F2937) else Color(0xFFE5E7EB)
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(bgColor)
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        // Shimmery top site title and icon placeholder
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(itemColor.copy(alpha = alpha))
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(120.dp)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(itemColor.copy(alpha = alpha))
+                )
+                Box(
+                    modifier = Modifier
+                        .width(70.dp)
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(itemColor.copy(alpha = alpha))
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Hero banner placeholder
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(itemColor.copy(alpha = alpha))
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Paragraph 1
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(itemColor.copy(alpha = alpha))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(itemColor.copy(alpha = alpha))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(itemColor.copy(alpha = alpha))
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Grid layout placeholder (news list cards style)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            repeat(2) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(itemColor.copy(alpha = alpha * 0.5f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(60.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(itemColor.copy(alpha = alpha))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.8f)
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(itemColor.copy(alpha = alpha))
+                    )
                 }
             }
         }
