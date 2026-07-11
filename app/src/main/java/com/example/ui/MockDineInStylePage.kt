@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import com.example.data.HomepageShortcut
+import com.example.data.CapturedMedia
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -48,8 +49,31 @@ fun MockDineInStylePage(
     showNewsSection: Boolean = true,
     onShowNewsSectionChange: (Boolean) -> Unit = {},
     onWallpaperChanged: (String?) -> Unit = {},
-    onProductClicked: (String) -> Unit = {}
+    onProductClicked: (String) -> Unit = {},
+    chromeThemeActive: Boolean = false,
+    chromeThemeNtpBgColor: Int = 0,
+    chromeThemeNtpTextColor: Int = 0,
+    chromeThemeNtpBgPath: String? = null,
+    playlistVideos: List<CapturedMedia> = emptyList(),
+    onPlayVideo: (CapturedMedia) -> Unit = {},
+    onDeleteVideo: (Long) -> Unit = {}
 ) {
+    val effectiveTextColor = if (chromeThemeActive) {
+        Color(chromeThemeNtpTextColor)
+    } else if (wallpaperUrl == null) {
+        MaterialTheme.colorScheme.onBackground
+    } else {
+        Color.White
+    }
+
+    val effectiveIconColor = if (chromeThemeActive) {
+        Color(chromeThemeNtpTextColor).copy(alpha = 0.7f)
+    } else if (wallpaperUrl == null) {
+        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+    } else {
+        Color.White.copy(alpha = 0.8f)
+    }
+
     var isEditPageOpen by remember { mutableStateOf(false) }
     var isAddShortcutDialogOpen by remember { mutableStateOf(false) }
     var isEditShortcutDialogOpen by remember { mutableStateOf(false) }
@@ -89,21 +113,28 @@ fun MockDineInStylePage(
         )
     }
 
+    val hasBgImage = wallpaperUrl != null || (chromeThemeActive && chromeThemeNtpBgPath != null)
+    val bgModel = if (chromeThemeActive && chromeThemeNtpBgPath != null) chromeThemeNtpBgPath else wallpaperUrl
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (wallpaperUrl == null) MaterialTheme.colorScheme.background else Color.Black)
+            .background(
+                if (chromeThemeActive) Color(chromeThemeNtpBgColor)
+                else if (wallpaperUrl == null) MaterialTheme.colorScheme.background
+                else Color.Black
+            )
     ) {
-        // Smoothly fade in/out the background image if custom wallpaper is active
+        // Smoothly fade in/out the background image if custom wallpaper or Chrome theme background is active
         AnimatedVisibility(
-            visible = wallpaperUrl != null,
+            visible = hasBgImage,
             enter = fadeIn(animationSpec = tween(500)),
             exit = fadeOut(animationSpec = tween(500)),
             modifier = Modifier.fillMaxSize()
         ) {
-            if (wallpaperUrl != null) {
+            if (bgModel != null) {
                 Image(
-                    painter = rememberAsyncImagePainter(model = wallpaperUrl),
+                    painter = rememberAsyncImagePainter(model = bgModel),
                     contentDescription = "Custom Wallpaper",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -140,7 +171,7 @@ fun MockDineInStylePage(
                         ) {
                             Text(
                                 text = "Favorites",
-                                color = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground else Color.White,
+                                color = effectiveTextColor,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -176,6 +207,103 @@ fun MockDineInStylePage(
                 }
             }
 
+            // --- VIDEO PLAYLIST SECTION ---
+            item {
+                val videosToShow = if (playlistVideos.isEmpty()) {
+                    listOf(
+                        CapturedMedia(
+                            id = -1,
+                            url = "https://assets.mixkit.co/videos/preview/mixkit-introducing-apple-vision-pro-mock-48991-large.mp4",
+                            type = "video",
+                            pageTitle = "Introducing Apple Vision Pro",
+                            pageUrl = "https://www.apple.com",
+                            isSaved = true
+                        ),
+                        CapturedMedia(
+                            id = -2,
+                            url = "https://assets.mixkit.co/videos/preview/mixkit-android-14-promo-video-mock-48992-large.mp4",
+                            type = "video",
+                            pageTitle = "We're head over heels for #Android14 💚",
+                            pageUrl = "https://www.android.com",
+                            isSaved = true
+                        ),
+                        CapturedMedia(
+                            id = -3,
+                            url = "https://assets.mixkit.co/videos/preview/mixkit-iphone-14-hello-yellow-mock-48993-large.mp4",
+                            type = "video",
+                            pageTitle = "iPhone 14 & iPhone 14 Plus | Hello Yellow | Apple",
+                            pageUrl = "https://www.apple.com",
+                            isSaved = true
+                        ),
+                        CapturedMedia(
+                            id = -4,
+                            url = "https://assets.mixkit.co/videos/preview/mixkit-apple-arcade-extraordinary-mock-48994-large.mp4",
+                            type = "video",
+                            pageTitle = "Apple Arcade Trailer - Play extraordinary",
+                            pageUrl = "https://www.apple.com",
+                            isSaved = true
+                        )
+                    )
+                } else {
+                    playlistVideos
+                }
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Playlist",
+                                color = effectiveTextColor,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "More",
+                                tint = effectiveIconColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            videosToShow.filterIndexed { idx, _ -> idx % 2 == 0 }.forEach { video ->
+                                PlaylistVideoCard(
+                                    video = video,
+                                    effectiveTextColor = effectiveTextColor,
+                                    onPlayVideo = onPlayVideo,
+                                    onDeleteVideo = onDeleteVideo
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            videosToShow.filterIndexed { idx, _ -> idx % 2 != 0 }.forEach { video ->
+                                PlaylistVideoCard(
+                                    video = video,
+                                    effectiveTextColor = effectiveTextColor,
+                                    onPlayVideo = onPlayVideo,
+                                    onDeleteVideo = onDeleteVideo
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- ICLOUD TABS SECTION ---
             if (showICloudTabsSection) {
                 item {
@@ -189,13 +317,13 @@ fun MockDineInStylePage(
                             Icon(
                                 imageVector = Icons.Default.Cloud,
                                 contentDescription = "iCloud",
-                                tint = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f),
+                                tint = effectiveIconColor,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "iCloud Tabs",
-                                color = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground else Color.White,
+                                color = effectiveTextColor,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -240,13 +368,13 @@ fun MockDineInStylePage(
                                 Icon(
                                     imageVector = Icons.Default.Article,
                                     contentDescription = "News",
-                                    tint = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.8f),
+                                    tint = effectiveIconColor,
                                     modifier = Modifier.size(24.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "World News",
-                                    color = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground else Color.White,
+                                    color = effectiveTextColor,
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif
@@ -1411,4 +1539,150 @@ fun EditShortcutDialog(
             }
         }
     )
+}
+
+fun getVideoThumbnail(title: String): String {
+    return when {
+        title.contains("Apple Vision Pro", ignoreCase = true) -> "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?q=80&w=400"
+        title.contains("Android14", ignoreCase = true) || title.contains("Android 14", ignoreCase = true) -> "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?q=80&w=400"
+        title.contains("Hello Yellow", ignoreCase = true) || title.contains("iPhone 14", ignoreCase = true) -> "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?q=80&w=400"
+        title.contains("Apple Arcade", ignoreCase = true) -> "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?q=80&w=400"
+        else -> "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?q=80&w=400"
+    }
+}
+
+fun getVideoDuration(title: String): String {
+    return when {
+        title.contains("Apple Vision Pro", ignoreCase = true) -> "9:22"
+        title.contains("Android14", ignoreCase = true) || title.contains("Android 14", ignoreCase = true) -> "1:09"
+        title.contains("Hello Yellow", ignoreCase = true) || title.contains("iPhone 14", ignoreCase = true) -> "0:39"
+        title.contains("Apple Arcade", ignoreCase = true) -> "0:30"
+        else -> "2:15"
+    }
+}
+
+@Composable
+fun PlaylistVideoCard(
+    video: CapturedMedia,
+    effectiveTextColor: Color,
+    onPlayVideo: (CapturedMedia) -> Unit,
+    onDeleteVideo: (Long) -> Unit
+) {
+    val thumbnail = remember(video.pageTitle) { getVideoThumbnail(video.pageTitle) }
+    val duration = remember(video.pageTitle) { getVideoDuration(video.pageTitle) }
+    
+    var showMenu by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onPlayVideo(video) }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 10f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.DarkGray)
+        ) {
+            Image(
+                painter = rememberAsyncImagePainter(model = thumbnail),
+                contentDescription = video.pageTitle,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            
+            // Dark gradient overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f))
+                        )
+                    )
+            )
+
+            // Play Icon in Center
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(36.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Duration badge in bottom right
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = duration,
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            // Delete option
+            if (video.id > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                ) {
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Options",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Delete from Playlist", color = Color.Red) },
+                            onClick = {
+                                showMenu = false
+                                onDeleteVideo(video.id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Text(
+            text = video.pageTitle,
+            color = effectiveTextColor,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+    }
 }

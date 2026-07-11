@@ -38,6 +38,8 @@ class BrowserRepository(private val browserDao: BrowserDao) {
 
     suspend fun getBookmarkByUrl(url: String): Bookmark? = browserDao.getBookmarkByUrl(url)
 
+    suspend fun getWatchedBookmarks(): List<Bookmark> = browserDao.getWatchedBookmarks()
+
     suspend fun deleteBookmarkById(id: Long) = browserDao.deleteBookmarkById(id)
 
     suspend fun deleteBookmarkByUrl(url: String) = browserDao.deleteBookmarkByUrl(url)

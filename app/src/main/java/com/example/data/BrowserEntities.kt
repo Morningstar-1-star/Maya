@@ -29,7 +29,9 @@ data class Bookmark(
     val url: String,
     val timestamp: Long = System.currentTimeMillis(),
     val isWatchMode: Boolean = false,
-    val lastTextHash: String? = null
+    val lastTextHash: String? = null,
+    val hasUpdateAlert: Boolean = false,
+    val lastUpdateDetails: String? = null
 )
 
 @Entity(tableName = "homepage_shortcuts")

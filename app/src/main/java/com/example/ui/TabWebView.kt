@@ -20,7 +20,8 @@ class MediaCaptureInterface(
     private val onCapture: (url: String, type: String, title: String, pageUrl: String) -> Unit,
     private val onLinkLongPress: (url: String, text: String) -> Unit,
     private val onVideoIconClicked: (url: String, title: String) -> Unit,
-    private val onElementLongPress: ((selector: String, html: String) -> Unit)? = null
+    private val onElementLongPress: ((selector: String, html: String) -> Unit)? = null,
+    private val onAdBlocked: (() -> Unit)? = null
 ) {
     @android.webkit.JavascriptInterface
     fun onImageFound(url: String) {
@@ -45,6 +46,11 @@ class MediaCaptureInterface(
     @android.webkit.JavascriptInterface
     fun onElementLongPressed(selector: String, html: String) {
         onElementLongPress?.invoke(selector, html)
+    }
+
+    @android.webkit.JavascriptInterface
+    fun onAdBlockedQuietly() {
+        onAdBlocked?.invoke()
     }
 }
 
@@ -100,6 +106,11 @@ object WebViewPool {
                             post {
                                 viewModel.showBlockElementConfirm(selector, html)
                             }
+                        },
+                        onAdBlocked = {
+                            post {
+                                viewModel.incrementBlockedAds(tabId)
+                            }
                         }
                     ),
                     "MediaCaptureInterface"
@@ -117,7 +128,7 @@ object WebViewPool {
                         false
                     }
                 }
-                setupSettings(this)
+                setupSettings(this, viewModel)
                 setupClients(this, tabId, viewModel)
             }
         }
@@ -137,7 +148,7 @@ object WebViewPool {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun setupSettings(webView: WebView) {
+    private fun setupSettings(webView: WebView, viewModel: BrowserViewModel) {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -148,7 +159,13 @@ object WebViewPool {
             displayZoomControls = false
             setSupportZoom(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            cacheMode = WebSettings.LOAD_DEFAULT
+            
+            if (viewModel.lowPowerModeEnabled.value) {
+                cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+            } else {
+                cacheMode = WebSettings.LOAD_DEFAULT
+            }
+            
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(true)
         }
@@ -251,6 +268,18 @@ object WebViewPool {
                         "UTF-8",
                         ByteArrayInputStream("".toByteArray())
                     )
+                }
+
+                // 4. Paywall Script Bypasser
+                if (viewModel.bypassPaywallsEnabled.value) {
+                    val lowUrl = url.lowercase()
+                    if (lowUrl.contains("tinypass.com") || lowUrl.contains("piano.io") || lowUrl.contains("poool.fr") || lowUrl.contains("outbrain.com") || lowUrl.contains("paywall") || lowUrl.contains("gatekeeper")) {
+                        return WebResourceResponse(
+                            "text/plain",
+                            "UTF-8",
+                            ByteArrayInputStream("".toByteArray())
+                        )
+                    }
                 }
 
                 // --- Custom DNS Blocking Interceptor ---
@@ -367,6 +396,37 @@ object WebViewPool {
                     canGoBack = view?.canGoBack() ?: false,
                     canGoForward = view?.canGoForward() ?: false
                 )
+
+                // Calculate Read Time on Every Page load dynamically
+                view?.evaluateJavascript(
+                    "(function() { " +
+                    "   var text = document.body ? document.body.innerText : ''; " +
+                    "   var words = text.trim().split(/\\s+/).filter(function(w) { return w.length > 0; }).length; " +
+                    "   return words; " +
+                    "})()"
+                ) { result ->
+                    val wordCount = result?.toIntOrNull() ?: 0
+                    viewModel.updateTabReadTime(tabId, wordCount)
+                }
+
+                // Injected Javascript paywall bypassed elements remover
+                if (viewModel.bypassPaywallsEnabled.value) {
+                    val paywallScript = """
+                        (function() {
+                            setTimeout(function() {
+                                document.documentElement.style.overflow = 'auto';
+                                document.body.style.overflow = 'auto';
+                                document.body.style.position = 'static';
+                                var list = document.querySelectorAll('[class*="paywall"], [id*="paywall"], [class*="gate"], [class*="subscription"], .tp-modal, .tp-backdrop');
+                                for (var i = 0; i < list.length; i++) {
+                                    list[i].remove();
+                                }
+                            }, 1000);
+                        })()
+                    """.trimIndent()
+                    view?.evaluateJavascript(paywallScript, null)
+                }
+
                 if (url != null) {
                     viewModel.updateTabTitleAndUrl(tabId, view?.title ?: "Browser Tab", url)
 
@@ -536,7 +596,8 @@ object WebViewPool {
                 val clickbait = viewModel.realityClickbaitFilter.value
                 val sponsored = viewModel.realitySponsoredBlock.value
                 val aiBadge = viewModel.realityAiBadge.value
-                if (clickbait || sponsored || aiBadge) {
+                val aiSmartAdBlock = viewModel.aiSmartAdBlockerEnabled.value
+                if (clickbait || sponsored || aiBadge || aiSmartAdBlock) {
                     val realityFiltersScript = """
                         (function() {
                             // 1. Clickbait Filter
@@ -605,6 +666,34 @@ object WebViewPool {
                                     badge.onclick = function() { badge.remove(); };
                                     document.body.appendChild(badge);
                                 }
+                            }
+
+                            // 4. AI Heuristic AdBlock Scanner
+                            if ($aiSmartAdBlock) {
+                                const adKeywords = ['banner', 'advertisement', 'sponsored', 'marketing', 'promo', 'adsense', 'ad-slot', 'google-ads'];
+                                document.querySelectorAll('div, iframe, section, ins').forEach(el => {
+                                    let isAd = false;
+                                    const classIdStr = (el.className + ' ' + el.id).toLowerCase();
+                                    if (adKeywords.some(kw => classIdStr.includes(kw))) {
+                                        isAd = true;
+                                    }
+                                    const rect = el.getBoundingClientRect();
+                                    if (rect.width > 0 && rect.height > 0) {
+                                        const ratio = rect.width / rect.height;
+                                        if ((Math.abs(ratio - (728/90)) < 0.2 && rect.width > 300) ||
+                                            (Math.abs(ratio - (300/250)) < 0.1 && rect.width > 150) ||
+                                            (Math.abs(ratio - (160/600)) < 0.1 && rect.height > 300) ||
+                                            (Math.abs(ratio - (320/50)) < 0.2 && rect.width > 200)) {
+                                            isAd = true;
+                                        }
+                                    }
+                                    if (isAd && el.style.display !== 'none') {
+                                        el.style.setProperty('display', 'none', 'important');
+                                        try {
+                                            MediaCaptureInterface.onAdBlockedQuietly();
+                                        } catch(e) {}
+                                    }
+                                });
                             }
                         })();
                     """.trimIndent()
@@ -1140,6 +1229,11 @@ fun TabWebView(
                 swipeRefreshLayout.isRefreshing = progress < 100
 
                 val view = webView
+                if (siteForceDark) {
+                    view.setBackgroundColor(android.graphics.Color.BLACK)
+                } else {
+                    view.setBackgroundColor(android.graphics.Color.WHITE)
+                }
                 // 1. Text zoom
                 view.settings.textZoom = (webTextZoom * 100).toInt()
             
@@ -1151,9 +1245,11 @@ fun TabWebView(
                         var style = document.createElement('style');
                         style.id = 'force-dark-style';
                         style.innerHTML = `
-                            html {
+                            html, body, #page, .page, main, article, section, div:not([style*="background-image"]) {
                                 filter: invert(1) hue-rotate(180deg) !important;
-                                background-color: #121212 !important;
+                                background-color: #000000 !important;
+                                background: #000000 !important;
+                                color: #FFFFFF !important;
                             }
                             img, video, iframe, canvas, [style*="background-image"] {
                                 filter: invert(1) hue-rotate(180deg) !important;

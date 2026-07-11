@@ -1,6 +1,8 @@
 package com.example
 
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,6 +25,37 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Enable 120Hz high refresh rate / smooth display mode if supported
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val window = window
+                val layoutParams = window.attributes
+                val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    display
+                } else {
+                    @Suppress("DEPRECATION")
+                    windowManager.defaultDisplay
+                }
+                if (display != null) {
+                    val supportedModes = display.supportedModes
+                    var bestMode = display.mode
+                    var maxRefreshRate = 60f
+                    for (mode in supportedModes) {
+                        if (mode.refreshRate > maxRefreshRate) {
+                            maxRefreshRate = mode.refreshRate
+                            bestMode = mode
+                        }
+                    }
+                    if (maxRefreshRate > 60f) {
+                        layoutParams.preferredDisplayModeId = bestMode.modeId
+                        window.attributes = layoutParams
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
         
         viewModel = ViewModelProvider(
             this, 

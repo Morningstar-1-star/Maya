@@ -38,6 +38,8 @@ fun DetectedVideoActionSheet(
     onPlayInBackground: (CapturedMedia) -> Unit,
     onAddToQueue: (CapturedMedia) -> Unit,
     onDownload: (CapturedMedia) -> Unit,
+    onTrimDownload: (CapturedMedia) -> Unit = {},
+    onSaveToPlaylist: (CapturedMedia) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -176,12 +178,35 @@ fun DetectedVideoActionSheet(
             )
 
             VideoActionItem(
+                title = "Save to Online Playlist",
+                subtitle = "Watch anytime in browser video player from the home page",
+                icon = Icons.Default.Bookmark,
+                iconColor = Color(0xFF3B82F6),
+                onClick = {
+                    onSaveToPlaylist(media)
+                    Toast.makeText(context, "Saved to online playlist!", Toast.LENGTH_SHORT).show()
+                    onClose()
+                }
+            )
+
+            VideoActionItem(
                 title = "Download Video",
                 subtitle = "Save video file offline to device downloads",
                 icon = Icons.Default.Download,
                 iconColor = Color(0xFFEC4899),
                 onClick = {
                     onDownload(media)
+                    onClose()
+                }
+            )
+
+            VideoActionItem(
+                title = "Trim & Snippet Video",
+                subtitle = "Crop & download only a custom length / part of this video",
+                icon = Icons.Default.ContentCut,
+                iconColor = Color(0xFFF43F5E),
+                onClick = {
+                    onTrimDownload(media)
                     onClose()
                 }
             )

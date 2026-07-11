@@ -1,6 +1,7 @@
 package com.example.viewmodel
 
 import android.app.Application
+import com.example.ui.WebViewPool
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -15,6 +16,7 @@ import com.example.data.CapturedMedia
 import com.example.data.UserScript
 import com.example.data.DnsManager
 import com.example.data.AdBlocker
+import com.example.data.VideoTrimmerHelper
 import android.content.Context
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -176,6 +178,66 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val _activeRoutingStatus = MutableStateFlow("Direct Connection")
     val activeRoutingStatus: StateFlow<String> = _activeRoutingStatus.asStateFlow()
+
+    // AI Automation & Smart Concepts
+    private val _aiAutoGroupingEnabled = MutableStateFlow(prefs.getBoolean("ai_auto_grouping", true))
+    val aiAutoGroupingEnabled: StateFlow<Boolean> = _aiAutoGroupingEnabled.asStateFlow()
+
+    private val _aiSmartAdBlockerEnabled = MutableStateFlow(prefs.getBoolean("ai_smart_adblocker", true))
+    val aiSmartAdBlockerEnabled: StateFlow<Boolean> = _aiSmartAdBlockerEnabled.asStateFlow()
+
+    private val _aiSmartSummarizerEnabled = MutableStateFlow(prefs.getBoolean("ai_smart_summarizer", true))
+    val aiSmartSummarizerEnabled: StateFlow<Boolean> = _aiSmartSummarizerEnabled.asStateFlow()
+
+    // AI Summary Dialog States
+    private val _isSummaryDialogVisible = MutableStateFlow(false)
+    val isSummaryDialogVisible: StateFlow<Boolean> = _isSummaryDialogVisible.asStateFlow()
+
+    private val _summaryContent = MutableStateFlow("")
+    val summaryContent: StateFlow<String> = _summaryContent.asStateFlow()
+
+    private val _isSummaryLoading = MutableStateFlow(false)
+    val isSummaryLoading: StateFlow<Boolean> = _isSummaryLoading.asStateFlow()
+
+    fun setSummaryDialogVisible(visible: Boolean) {
+        _isSummaryDialogVisible.value = visible
+    }
+
+    fun summarizeCurrentPage(webText: String) {
+        _isSummaryDialogVisible.value = true
+        _isSummaryLoading.value = true
+        _summaryContent.value = "AI is scanning the webpage text content and composing a summary..."
+        viewModelScope.launch {
+            val summary = generatePageSummaryWithGemini(webText)
+            _summaryContent.value = summary
+            _isSummaryLoading.value = false
+        }
+    }
+
+    private suspend fun generatePageSummaryWithGemini(pageText: String): String {
+        val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+            return "Please configure your GEMINI_API_KEY in the Secrets panel of AI Studio to activate the AI Page Summarizer."
+        }
+        
+        val prompt = "Please provide a concise, readable, and structured summary of the following webpage content. Focus on the main key points and takeaways:\n\n$pageText"
+        
+        val request = com.example.data.GenerateContentRequest(
+            contents = listOf(com.example.data.Content(
+                parts = listOf(com.example.data.Part(text = prompt))
+            ))
+        )
+        
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val response = com.example.data.RetrofitClient.service.generateContent(apiKey, request)
+                response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text 
+                    ?: "Could not generate summary. No text candidates returned."
+            } catch (e: Exception) {
+                "Error generating summary: ${e.localizedMessage ?: "Unknown Error"}"
+            }
+        }
+    }
 
     // Search Engine Configuration
     private val _searchEngineName = MutableStateFlow(prefs.getString("search_engine_name", "Google") ?: "Google")
@@ -473,6 +535,52 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _blockedAdsMap = MutableStateFlow<Map<Long, Int>>(emptyMap())
     val blockedAdsMap: StateFlow<Map<Long, Int>> = _blockedAdsMap.asStateFlow()
 
+    // New premium features states
+    private val _lowPowerModeEnabled = MutableStateFlow(prefs.getBoolean("low_power_mode_enabled", false))
+    val lowPowerModeEnabled: StateFlow<Boolean> = _lowPowerModeEnabled.asStateFlow()
+
+    private val _bypassPaywallsEnabled = MutableStateFlow(prefs.getBoolean("bypass_paywalls_enabled", false))
+    val bypassPaywallsEnabled: StateFlow<Boolean> = _bypassPaywallsEnabled.asStateFlow()
+
+    private val _fullScreenReading = MutableStateFlow(false)
+    val fullScreenReading: StateFlow<Boolean> = _fullScreenReading.asStateFlow()
+
+    private val _tabDesktopModes = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
+    val tabDesktopModes: StateFlow<Map<Long, Boolean>> = _tabDesktopModes.asStateFlow()
+
+    private val _tabReadTimes = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    val tabReadTimes: StateFlow<Map<Long, Int>> = _tabReadTimes.asStateFlow()
+
+    private val _tabSortMode = MutableStateFlow("Default")
+    val tabSortMode: StateFlow<String> = _tabSortMode.asStateFlow()
+
+    // Reader Mode States
+    private val _isReaderModeActive = MutableStateFlow(false)
+    val isReaderModeActive: StateFlow<Boolean> = _isReaderModeActive.asStateFlow()
+
+    private val _readerTitle = MutableStateFlow("")
+    val readerTitle: StateFlow<String> = _readerTitle.asStateFlow()
+
+    private val _readerContent = MutableStateFlow("")
+    val readerContent: StateFlow<String> = _readerContent.asStateFlow()
+
+    private val _readerTextSize = MutableStateFlow(prefs.getInt("reader_text_size", 16))
+    val readerTextSize: StateFlow<Int> = _readerTextSize.asStateFlow()
+
+    private val _readerTheme = MutableStateFlow(prefs.getString("reader_theme", "Sepia") ?: "Sepia")
+    val readerTheme: StateFlow<String> = _readerTheme.asStateFlow()
+
+    private val _readerFontFamily = MutableStateFlow(prefs.getString("reader_font_family", "Serif") ?: "Serif")
+    val readerFontFamily: StateFlow<String> = _readerFontFamily.asStateFlow()
+
+    val activeTabReadTime = combine(activeTabId, _tabReadTimes) { activeId, readTimes ->
+        if (activeId != null) readTimes[activeId] else null
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
+
     private val _quickTabStripVisible = MutableStateFlow(true)
     val quickTabStripVisible: StateFlow<Boolean> = _quickTabStripVisible.asStateFlow()
 
@@ -584,6 +692,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _loadingProgressMap = MutableStateFlow<Map<Long, Int>>(emptyMap())
     val loadingProgressMap: StateFlow<Map<Long, Int>> = _loadingProgressMap.asStateFlow()
 
+    // Website Evolution notification states
+    private val _websiteEvolutionAlert = MutableStateFlow<Pair<String, Int>?>(null)
+    val websiteEvolutionAlert: StateFlow<Pair<String, Int>?> = _websiteEvolutionAlert.asStateFlow()
+
+    private val _isCheckingUpdates = MutableStateFlow(false)
+    val isCheckingUpdates: StateFlow<Boolean> = _isCheckingUpdates.asStateFlow()
+
     init {
         AdBlocker.initialize(application)
         _adFilters.value = loadAdFilters()
@@ -598,7 +713,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val database = AppDatabase.getDatabase(application)
         repository = BrowserRepository(database.browserDao())
 
-        allTabs = repository.allTabs.stateIn(
+        allTabs = combine(
+            repository.allTabs,
+            _tabSortMode,
+            _tabReadTimes
+        ) { tabs, sortMode, readTimes ->
+            if (sortMode == "ReadTime") {
+                tabs.sortedBy { readTimes[it.id] ?: 1 }
+            } else {
+                tabs
+            }
+        }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
@@ -717,6 +842,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }
         loadSavedPasswords()
+        checkWatchedWebsitesForUpdates()
     }
 
     private var isUserTyping = false
@@ -771,6 +897,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 if (tabId == _activeTabId.value) {
                     _currentUrlInput.value = url
                 }
+                runAIAutoGroupingForTab(tabId, title, url)
             }
         }
     }
@@ -788,6 +915,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _activeTabId.value = newId
             _currentUrlInput.value = cleanUrl
             _isTabSwitcherVisible.value = false // Close tab switcher when tab is added
+        }
+    }
+
+    fun closeAllTabs() {
+        viewModelScope.launch {
+            repository.clearAllTabs()
+            createDefaultTab()
         }
     }
 
@@ -834,6 +968,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val tab = allTabs.value.find { it.id == tabId }
             if (tab != null) {
                 repository.updateTab(tab.copy(groupName = groupName?.trim()?.ifEmpty { null }))
+            }
+        }
+    }
+
+    fun groupTabs(tabId1: Long, tabId2: Long) {
+        viewModelScope.launch {
+            val tab1 = allTabs.value.find { it.id == tabId1 }
+            val tab2 = allTabs.value.find { it.id == tabId2 }
+            if (tab1 != null && tab2 != null) {
+                val groupName = tab2.groupName ?: "Group ${tab2.id}"
+                repository.updateTab(tab2.copy(groupName = groupName))
+                repository.updateTab(tab1.copy(groupName = groupName))
             }
         }
     }
@@ -905,10 +1051,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // Website Evolution notification states
-    private val _websiteEvolutionAlert = MutableStateFlow<Pair<String, Int>?>(null)
-    val websiteEvolutionAlert: StateFlow<Pair<String, Int>?> = _websiteEvolutionAlert.asStateFlow()
-
     fun setWebsiteEvolutionAlert(url: String, newCount: Int) {
         _websiteEvolutionAlert.value = Pair(url, newCount)
     }
@@ -921,9 +1063,127 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val bookmark = repository.getBookmarkByUrl(url)
             if (bookmark != null) {
-                repository.updateBookmark(bookmark.copy(lastTextHash = null))
+                repository.updateBookmark(bookmark.copy(lastTextHash = null, hasUpdateAlert = false, lastUpdateDetails = null))
                 reloadTrigger()
                 _websiteEvolutionAlert.value = null
+            }
+        }
+    }
+
+    fun extractTextFromHtml(html: String): List<String> {
+        var cleanHtml = html
+        cleanHtml = cleanHtml.replace(Regex("(?s)<script.*?>.*?</script>", RegexOption.IGNORE_CASE), "")
+        cleanHtml = cleanHtml.replace(Regex("(?s)<style.*?>.*?</style>", RegexOption.IGNORE_CASE), "")
+        cleanHtml = cleanHtml.replace(Regex("(?s)<!--.*?-->"), "")
+        
+        val items = mutableListOf<String>()
+        val pattern = Regex(">([^<]+)<")
+        val matches = pattern.findAll(cleanHtml)
+        for (match in matches) {
+            val text = match.groupValues[1].trim()
+            if (text.length > 15) {
+                val cleanText = text
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&nbsp;", " ")
+                if (cleanText.length > 15 && !cleanText.startsWith("{") && !cleanText.endsWith("}")) {
+                    items.add(cleanText)
+                }
+            }
+        }
+        return items
+    }
+
+    fun checkWatchedWebsitesForUpdates() {
+        if (_isCheckingUpdates.value) return
+        _isCheckingUpdates.value = true
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val watched = repository.getWatchedBookmarks()
+                if (watched.isNotEmpty()) {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+
+                    for (bookmark in watched) {
+                        try {
+                            val request = okhttp3.Request.Builder()
+                                .url(bookmark.url)
+                                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
+                                .build()
+
+                            client.newCall(request).execute().use { response ->
+                                if (response.isSuccessful) {
+                                    val html = response.body?.string() ?: ""
+                                    if (html.isNotBlank()) {
+                                        val newTexts = extractTextFromHtml(html)
+                                        val newHashes = newTexts.map { it.hashCode().toString() }
+
+                                        val savedHashesJson = bookmark.lastTextHash
+                                        if (savedHashesJson.isNullOrBlank()) {
+                                            val jsonStr = org.json.JSONArray(newHashes).toString()
+                                            repository.updateBookmark(
+                                                bookmark.copy(
+                                                    lastTextHash = jsonStr,
+                                                    hasUpdateAlert = false,
+                                                    lastUpdateDetails = null
+                                                )
+                                            )
+                                        } else {
+                                            val savedArray = org.json.JSONArray(savedHashesJson)
+                                            val savedSet = mutableSetOf<String>()
+                                            for (i in 0 until savedArray.length()) {
+                                                savedSet.add(savedArray.getString(i))
+                                            }
+
+                                            val newItems = mutableListOf<String>()
+                                            val updatedHashes = savedSet.toMutableSet()
+
+                                            for (i in 0 until newTexts.size) {
+                                                val h = newHashes[i]
+                                                if (!savedSet.contains(h)) {
+                                                    newItems.add(newTexts[i])
+                                                    updatedHashes.add(h)
+                                                }
+                                            }
+
+                                            if (newItems.isNotEmpty()) {
+                                                val detailsJson = org.json.JSONArray(newItems).toString()
+                                                val updatedHashesJson = org.json.JSONArray(updatedHashes.toList()).toString()
+
+                                                repository.updateBookmark(
+                                                    bookmark.copy(
+                                                        lastTextHash = updatedHashesJson,
+                                                        hasUpdateAlert = true,
+                                                        lastUpdateDetails = detailsJson
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _isCheckingUpdates.value = false
+            }
+        }
+    }
+
+    fun clearBookmarkUpdateAlert(url: String) {
+        viewModelScope.launch {
+            val bookmark = repository.getBookmarkByUrl(url)
+            if (bookmark != null) {
+                repository.updateBookmark(bookmark.copy(hasUpdateAlert = false, lastUpdateDetails = null))
             }
         }
     }
@@ -1061,6 +1321,117 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setSmartTorActive(enabled: Boolean) {
         _smartTorActive.value = enabled
         prefs.edit().putBoolean("smart_tor_active", enabled).apply()
+    }
+
+    fun setAIAutoGroupingEnabled(enabled: Boolean) {
+        _aiAutoGroupingEnabled.value = enabled
+        prefs.edit().putBoolean("ai_auto_grouping", enabled).apply()
+    }
+
+    fun setAISmartAdBlockerEnabled(enabled: Boolean) {
+        _aiSmartAdBlockerEnabled.value = enabled
+        prefs.edit().putBoolean("ai_smart_adblocker", enabled).apply()
+    }
+
+    fun setAISmartSummarizerEnabled(enabled: Boolean) {
+        _aiSmartSummarizerEnabled.value = enabled
+        prefs.edit().putBoolean("ai_smart_summarizer", enabled).apply()
+    }
+
+    fun triggerAIAutoGrouping() {
+        viewModelScope.launch {
+            val tabs = allTabs.value
+            val groupedTabIds = mutableSetOf<Long>()
+            
+            // Explicit topics based on WWE, Apple, Reading/Research, Social, Shopping, Search
+            val topics = listOf(
+                "WWE Wrestling" to listOf("wwe", "wrestling", "smackdown", "raw", "aew", "wrestlemania", "royal rumble", "roman reigns"),
+                "Apple News" to listOf("apple.com", "wwdc", "macbook", "iphone", "ipad", "steve jobs", "ios", "swiftui"),
+                "Reading & Research" to listOf("medium.com", "substack", "wikipedia.org", "britannica.com", "blogger", "wordpress"),
+                "Social Media" to listOf("twitter.com", "x.com", "facebook.com", "instagram.com", "reddit.com", "linkedin.com"),
+                "Shopping" to listOf("amazon.com", "ebay.com", "shopify", "target.com", "walmart.com", "aliexpress.com"),
+                "Search Engines" to listOf("google.com", "bing.com", "duckduckgo")
+            )
+            
+            for ((groupName, keywords) in topics) {
+                val matchingTabs = tabs.filter { tab ->
+                    !groupedTabIds.contains(tab.id) && 
+                    keywords.any { kw -> 
+                        tab.title.contains(kw, ignoreCase = true) || tab.url.contains(kw, ignoreCase = true) 
+                    }
+                }
+                if (matchingTabs.isNotEmpty()) {
+                    matchingTabs.forEach { tab ->
+                        repository.updateTab(tab.copy(groupName = groupName))
+                        groupedTabIds.add(tab.id)
+                    }
+                }
+            }
+            
+            // Domain grouping for remaining tabs
+            val remainingTabs = allTabs.value.filter { !groupedTabIds.contains(it.id) && it.groupName == null }
+            val domainGroups = remainingTabs.groupBy { getDomainName(it.url).lowercase() }
+            
+            for ((rawDomain, domainTabs) in domainGroups) {
+                if (domainTabs.size >= 2 && rawDomain.isNotBlank() && rawDomain != "dineinstyle.com") {
+                    val cleanDomain = if (rawDomain.endsWith(".com") || rawDomain.endsWith(".org") || rawDomain.endsWith(".net")) {
+                        rawDomain.substring(0, rawDomain.lastIndexOf('.'))
+                    } else {
+                        rawDomain
+                    }
+                    val groupName = "${cleanDomain.replaceFirstChar { it.uppercase() }} Stack"
+                    domainTabs.forEach { tab ->
+                        repository.updateTab(tab.copy(groupName = groupName))
+                    }
+                }
+            }
+        }
+    }
+
+    fun runAIAutoGroupingForTab(tabId: Long, title: String, url: String) {
+        if (!_aiAutoGroupingEnabled.value) return
+        viewModelScope.launch {
+            val tabs = allTabs.value
+            val tab = tabs.find { it.id == tabId } ?: return@launch
+            if (tab.groupName != null) return@launch
+            
+            val topics = listOf(
+                "WWE Wrestling" to listOf("wwe", "wrestling", "smackdown", "raw", "aew", "wrestlemania", "royal rumble", "roman reigns"),
+                "Apple News" to listOf("apple.com", "wwdc", "macbook", "iphone", "ipad", "steve jobs", "ios", "swiftui"),
+                "Reading & Research" to listOf("medium.com", "substack", "wikipedia.org", "britannica.com", "blogger", "wordpress"),
+                "Social Media" to listOf("twitter.com", "x.com", "facebook.com", "instagram.com", "reddit.com", "linkedin.com"),
+                "Shopping" to listOf("amazon.com", "ebay.com", "shopify", "target.com", "walmart.com", "aliexpress.com"),
+                "Search Engines" to listOf("google.com", "bing.com", "duckduckgo")
+            )
+            
+            for ((groupName, keywords) in topics) {
+                if (keywords.any { kw -> title.contains(kw, ignoreCase = true) || url.contains(kw, ignoreCase = true) }) {
+                    repository.updateTab(tab.copy(groupName = groupName))
+                    return@launch
+                }
+            }
+            
+            val currentDomain = getDomainName(url).lowercase()
+            if (currentDomain.isNotBlank() && currentDomain != "dineinstyle.com") {
+                val existingGroupTab = tabs.find { it.id != tabId && getDomainName(it.url).lowercase() == currentDomain && it.groupName != null }
+                if (existingGroupTab != null) {
+                    repository.updateTab(tab.copy(groupName = existingGroupTab.groupName))
+                    return@launch
+                }
+                
+                val existingUngroupedTab = tabs.find { it.id != tabId && getDomainName(it.url).lowercase() == currentDomain && it.groupName == null }
+                if (existingUngroupedTab != null) {
+                    val cleanDomain = if (currentDomain.endsWith(".com") || currentDomain.endsWith(".org") || currentDomain.endsWith(".net")) {
+                        currentDomain.substring(0, currentDomain.lastIndexOf('.'))
+                    } else {
+                        currentDomain
+                    }
+                    val groupName = "${cleanDomain.replaceFirstChar { it.uppercase() }} Stack"
+                    repository.updateTab(existingUngroupedTab.copy(groupName = groupName))
+                    repository.updateTab(tab.copy(groupName = groupName))
+                }
+            }
+        }
     }
 
     fun updateRoutingStatus(status: String) {
@@ -1775,6 +2146,42 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun saveVideoToPlaylist(media: CapturedMedia) {
+        viewModelScope.launch {
+            val existing = repository.getMediaByUrl(media.url)
+            if (existing != null) {
+                repository.updateMedia(existing.copy(isSaved = true, type = "video"))
+            } else {
+                repository.insertMedia(
+                    media.copy(
+                        id = 0, // ensure auto-increment
+                        isSaved = true,
+                        type = "video"
+                    )
+                )
+            }
+        }
+    }
+
+    fun saveVideoToPlaylist(title: String, url: String, pageUrl: String) {
+        viewModelScope.launch {
+            val existing = repository.getMediaByUrl(url)
+            if (existing != null) {
+                repository.updateMedia(existing.copy(isSaved = true, type = "video"))
+            } else {
+                repository.insertMedia(
+                    CapturedMedia(
+                        url = url,
+                        type = "video",
+                        pageTitle = title,
+                        pageUrl = pageUrl,
+                        isSaved = true
+                    )
+                )
+            }
+        }
+    }
+
     fun deleteMedia(id: Long) {
         viewModelScope.launch {
             repository.deleteMediaById(id)
@@ -2138,6 +2545,613 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putStringSet("copy_unblock_disabled_domains", currentSet).apply()
     }
 
+    // --- Chrome Web Store Themes Support ---
+    private val _chromeThemeActive = MutableStateFlow<Boolean>(prefs.getBoolean("chrome_theme_active", false))
+    val chromeThemeActive: StateFlow<Boolean> = _chromeThemeActive.asStateFlow()
+
+    private val _chromeThemeId = MutableStateFlow<String>(prefs.getString("chrome_theme_id", "") ?: "")
+    val chromeThemeId: StateFlow<String> = _chromeThemeId.asStateFlow()
+
+    private val _chromeThemeName = MutableStateFlow<String>(prefs.getString("chrome_theme_name", "Default") ?: "Default")
+    val chromeThemeName: StateFlow<String> = _chromeThemeName.asStateFlow()
+
+    private val _chromeThemeFrameColor = MutableStateFlow<Int>(prefs.getInt("chrome_theme_frame_color", android.graphics.Color.parseColor("#1E293B")))
+    val chromeThemeFrameColor: StateFlow<Int> = _chromeThemeFrameColor.asStateFlow()
+
+    private val _chromeThemeToolbarColor = MutableStateFlow<Int>(prefs.getInt("chrome_theme_toolbar_color", android.graphics.Color.parseColor("#0F172A")))
+    val chromeThemeToolbarColor: StateFlow<Int> = _chromeThemeToolbarColor.asStateFlow()
+
+    private val _chromeThemeTextColor = MutableStateFlow<Int>(prefs.getInt("chrome_theme_text_color", android.graphics.Color.WHITE))
+    val chromeThemeTextColor: StateFlow<Int> = _chromeThemeTextColor.asStateFlow()
+
+    private val _chromeThemeInactiveTextColor = MutableStateFlow<Int>(prefs.getInt("chrome_theme_inactive_text_color", android.graphics.Color.parseColor("#94A3B8")))
+    val chromeThemeInactiveTextColor: StateFlow<Int> = _chromeThemeInactiveTextColor.asStateFlow()
+
+    private val _chromeThemeNtpBgColor = MutableStateFlow<Int>(prefs.getInt("chrome_theme_ntp_bg_color", android.graphics.Color.parseColor("#0B0F19")))
+    val chromeThemeNtpBgColor: StateFlow<Int> = _chromeThemeNtpBgColor.asStateFlow()
+
+    private val _chromeThemeNtpTextColor = MutableStateFlow<Int>(prefs.getInt("chrome_theme_ntp_text_color", android.graphics.Color.WHITE))
+    val chromeThemeNtpTextColor: StateFlow<Int> = _chromeThemeNtpTextColor.asStateFlow()
+
+    private val _chromeThemeNtpBgPath = MutableStateFlow<String?>(prefs.getString("chrome_theme_ntp_bg_path", null))
+    val chromeThemeNtpBgPath: StateFlow<String?> = _chromeThemeNtpBgPath.asStateFlow()
+
+    fun resetChromeTheme() {
+        val edit = prefs.edit()
+        edit.putBoolean("chrome_theme_active", false)
+        edit.remove("chrome_theme_id")
+        edit.remove("chrome_theme_name")
+        edit.remove("chrome_theme_frame_color")
+        edit.remove("chrome_theme_toolbar_color")
+        edit.remove("chrome_theme_text_color")
+        edit.remove("chrome_theme_inactive_text_color")
+        edit.remove("chrome_theme_ntp_bg_color")
+        edit.remove("chrome_theme_ntp_text_color")
+        edit.remove("chrome_theme_ntp_bg_path")
+        edit.apply()
+
+        // Delete downloaded image if it exists
+        try {
+            val file = java.io.File(getApplication<Application>().filesDir, "chrome_theme_bg.png")
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        _chromeThemeActive.value = false
+        _chromeThemeId.value = ""
+        _chromeThemeName.value = "Default"
+        _chromeThemeFrameColor.value = android.graphics.Color.parseColor("#1E293B")
+        _chromeThemeToolbarColor.value = android.graphics.Color.parseColor("#0F172A")
+        _chromeThemeTextColor.value = android.graphics.Color.WHITE
+        _chromeThemeInactiveTextColor.value = android.graphics.Color.parseColor("#94A3B8")
+        _chromeThemeNtpBgColor.value = android.graphics.Color.parseColor("#0B0F19")
+        _chromeThemeNtpTextColor.value = android.graphics.Color.WHITE
+        _chromeThemeNtpBgPath.value = null
+    }
+
+    fun applyPresetTheme(
+        id: String,
+        name: String,
+        frameColor: Int,
+        toolbarColor: Int,
+        textColor: Int,
+        inactiveTextColor: Int,
+        ntpBgColor: Int,
+        ntpTextColor: Int
+    ) {
+        // Clear custom NTP background
+        try {
+            val file = java.io.File(getApplication<Application>().filesDir, "chrome_theme_bg.png")
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val edit = prefs.edit()
+        edit.putBoolean("chrome_theme_active", true)
+        edit.putString("chrome_theme_id", id)
+        edit.putString("chrome_theme_name", name)
+        edit.putInt("chrome_theme_frame_color", frameColor)
+        edit.putInt("chrome_theme_toolbar_color", toolbarColor)
+        edit.putInt("chrome_theme_text_color", textColor)
+        edit.putInt("chrome_theme_inactive_text_color", inactiveTextColor)
+        edit.putInt("chrome_theme_ntp_bg_color", ntpBgColor)
+        edit.putInt("chrome_theme_ntp_text_color", ntpTextColor)
+        edit.remove("chrome_theme_ntp_bg_path")
+        edit.apply()
+
+        _chromeThemeActive.value = true
+        _chromeThemeId.value = id
+        _chromeThemeName.value = name
+        _chromeThemeFrameColor.value = frameColor
+        _chromeThemeToolbarColor.value = toolbarColor
+        _chromeThemeTextColor.value = textColor
+        _chromeThemeInactiveTextColor.value = inactiveTextColor
+        _chromeThemeNtpBgColor.value = ntpBgColor
+        _chromeThemeNtpTextColor.value = ntpTextColor
+        _chromeThemeNtpBgPath.value = null
+    }
+
+    fun extractChromeThemeId(urlOrId: String): String? {
+        val trimmed = urlOrId.trim()
+        if (trimmed.length == 32 && trimmed.all { it in 'a'..'z' }) {
+            return trimmed
+        }
+        val pattern = java.util.regex.Pattern.compile("([a-z]{32})")
+        val matcher = pattern.matcher(trimmed)
+        if (matcher.find()) {
+            return matcher.group(1)
+        }
+        return null
+    }
+
+    fun installChromeThemeByUrlOrId(urlOrId: String, onResult: (Boolean, String) -> Unit) {
+        val themeId = extractChromeThemeId(urlOrId)
+        if (themeId == null) {
+            onResult(false, "Invalid Chrome Web Store Theme URL or ID. Please check and try again.")
+            return
+        }
+        installChromeTheme(themeId, onResult)
+    }
+
+    fun installChromeTheme(themeId: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // 1. Download the crx file
+                val urlString = "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=110.0&acceptformat=crx2,crx3&x=id%3D${themeId}%26uc"
+                val url = java.net.URL(urlString)
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36")
+                connection.connect()
+
+                var responseCode = connection.responseCode
+                var stream = connection.inputStream
+
+                if (responseCode == java.net.HttpURLConnection.HTTP_MOVED_TEMP || responseCode == java.net.HttpURLConnection.HTTP_MOVED_PERM) {
+                    val newUrl = connection.getHeaderField("Location")
+                    val conn2 = java.net.URL(newUrl).openConnection() as java.net.HttpURLConnection
+                    conn2.connect()
+                    responseCode = conn2.responseCode
+                    stream = conn2.inputStream
+                }
+
+                if (responseCode !in 200..299) {
+                    throw Exception("HTTP Error $responseCode from theme server")
+                }
+
+                processCrxStream(stream, themeId, onResult)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                viewModelScope.launch {
+                    onResult(false, e.localizedMessage ?: "Failed to download theme")
+                }
+            }
+        }
+    }
+
+    private fun processCrxStream(
+        inputStream: java.io.InputStream,
+        themeId: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        try {
+            val bytes = inputStream.readBytes()
+            if (bytes.size < 4) {
+                throw Exception("Invalid theme file size downloaded")
+            }
+
+            var zipBytes = bytes
+            // Check magic number "Cr24"
+            if (bytes[0] == 0x43.toByte() && bytes[1] == 0x72.toByte() && bytes[2] == 0x32.toByte() && bytes[3] == 0x34.toByte()) {
+                val version = (bytes[4].toInt() and 0xFF) or
+                              ((bytes[5].toInt() and 0xFF) shl 8) or
+                              ((bytes[6].toInt() and 0xFF) shl 16) or
+                              ((bytes[7].toInt() and 0xFF) shl 24)
+
+                val zipOffset = if (version == 3) {
+                    val headerLength = (bytes[8].toInt() and 0xFF) or
+                                       ((bytes[9].toInt() and 0xFF) shl 8) or
+                                       ((bytes[10].toInt() and 0xFF) shl 16) or
+                                       ((bytes[11].toInt() and 0xFF) shl 24)
+                    12 + headerLength
+                } else if (version == 2) {
+                    val pkLen = (bytes[8].toInt() and 0xFF) or
+                                 ((bytes[9].toInt() and 0xFF) shl 8) or
+                                 ((bytes[10].toInt() and 0xFF) shl 16) or
+                                 ((bytes[11].toInt() and 0xFF) shl 24)
+                    val sigLen = (bytes[12].toInt() and 0xFF) or
+                                  ((bytes[13].toInt() and 0xFF) shl 8) or
+                                  ((bytes[14].toInt() and 0xFF) shl 16) or
+                                  ((bytes[15].toInt() and 0xFF) shl 24)
+                    16 + pkLen + sigLen
+                } else {
+                    0
+                }
+                if (zipOffset > 0 && zipOffset < bytes.size) {
+                    zipBytes = bytes.copyOfRange(zipOffset, bytes.size)
+                }
+            }
+
+            // Parse ZIP bytes
+            val bais = java.io.ByteArrayInputStream(zipBytes)
+            val zis = java.util.zip.ZipInputStream(bais)
+            var entry = zis.nextEntry
+
+            var manifestJsonString: String? = null
+            val images = mutableMapOf<String, ByteArray>()
+
+            while (entry != null) {
+                val name = entry.name
+                if (name == "manifest.json") {
+                    manifestJsonString = zis.readBytes().toString(Charsets.UTF_8)
+                } else if (name.startsWith("images/") || name.contains(".png") || name.contains(".jpg") || name.contains(".jpeg")) {
+                    images[name] = zis.readBytes()
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+            zis.close()
+
+            if (manifestJsonString == null) {
+                throw Exception("No manifest.json found in the theme archive")
+            }
+
+            parseAndApplyTheme(themeId, manifestJsonString, images, onResult)
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            viewModelScope.launch {
+                onResult(false, e.localizedMessage ?: "Failed to extract theme zip")
+            }
+        }
+    }
+
+    private fun parseAndApplyTheme(
+        themeId: String,
+        jsonString: String,
+        images: Map<String, ByteArray>,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        try {
+            val rootObj = org.json.JSONObject(jsonString)
+            val name = rootObj.optString("name", "Unnamed Theme")
+            val themeObj = rootObj.optJSONObject("theme") ?: throw Exception("Not a valid Chrome theme (missing 'theme' object)")
+
+            val colorsObj = themeObj.optJSONObject("colors")
+
+            fun parseColor(key: String, default: Int): Int {
+                if (colorsObj == null) return default
+                val arr = colorsObj.optJSONArray(key) ?: return default
+                if (arr.length() >= 3) {
+                    val r = arr.getInt(0)
+                    val g = arr.getInt(1)
+                    val b = arr.getInt(2)
+                    return android.graphics.Color.rgb(r, g, b)
+                }
+                return default
+            }
+
+            val frameColor = parseColor("frame", android.graphics.Color.parseColor("#1E293B"))
+            val toolbarColor = parseColor("toolbar", android.graphics.Color.parseColor("#0F172A"))
+            val textColor = parseColor("tab_text", android.graphics.Color.WHITE)
+            val inactiveTextColor = parseColor("tab_background_text", android.graphics.Color.parseColor("#94A3B8"))
+            val ntpBgColor = parseColor("ntp_background", android.graphics.Color.parseColor("#0B0F19"))
+            val ntpTextColor = parseColor("ntp_text", android.graphics.Color.WHITE)
+
+            var ntpBgPath: String? = null
+            val imagesObj = themeObj.optJSONObject("images")
+            if (imagesObj != null) {
+                val ntpBgKey = imagesObj.optString("theme_ntp_background", "")
+                if (ntpBgKey.isNotEmpty() && images.containsKey(ntpBgKey)) {
+                    val context = getApplication<Application>().applicationContext
+                    val file = java.io.File(context.filesDir, "chrome_theme_bg.png")
+                    file.writeBytes(images[ntpBgKey]!!)
+                    ntpBgPath = file.absolutePath
+                }
+            }
+
+            val edit = prefs.edit()
+            edit.putBoolean("chrome_theme_active", true)
+            edit.putString("chrome_theme_id", themeId)
+            edit.putString("chrome_theme_name", name)
+            edit.putInt("chrome_theme_frame_color", frameColor)
+            edit.putInt("chrome_theme_toolbar_color", toolbarColor)
+            edit.putInt("chrome_theme_text_color", textColor)
+            edit.putInt("chrome_theme_inactive_text_color", inactiveTextColor)
+            edit.putInt("chrome_theme_ntp_bg_color", ntpBgColor)
+            edit.putInt("chrome_theme_ntp_text_color", ntpTextColor)
+            if (ntpBgPath != null) {
+                edit.putString("chrome_theme_ntp_bg_path", ntpBgPath)
+            } else {
+                edit.remove("chrome_theme_ntp_bg_path")
+            }
+            edit.apply()
+
+            viewModelScope.launch {
+                _chromeThemeActive.value = true
+                _chromeThemeId.value = themeId
+                _chromeThemeName.value = name
+                _chromeThemeFrameColor.value = frameColor
+                _chromeThemeToolbarColor.value = toolbarColor
+                _chromeThemeTextColor.value = textColor
+                _chromeThemeInactiveTextColor.value = inactiveTextColor
+                _chromeThemeNtpBgColor.value = ntpBgColor
+                _chromeThemeNtpTextColor.value = ntpTextColor
+                _chromeThemeNtpBgPath.value = ntpBgPath
+
+                onResult(true, "Successfully installed theme: $name")
+            }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            viewModelScope.launch {
+                onResult(false, "Failed to parse theme: " + e.localizedMessage)
+            }
+        }
+    }
+
+    // --- Video Download & Trim Feature ---
+    private val _trimProgressState = MutableStateFlow<TrimProgress?>(null)
+    val trimProgressState: StateFlow<TrimProgress?> = _trimProgressState.asStateFlow()
+
+    fun downloadAndTrimVideo(
+        context: Context,
+        videoUrl: String,
+        originalFilename: String,
+        startMs: Long,
+        endMs: Long
+    ) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val finalFilename = if (originalFilename.isBlank() || !originalFilename.contains(".")) "${System.currentTimeMillis()}.mp4" else originalFilename
+            val baseName = finalFilename.substringBeforeLast(".")
+            val ext = finalFilename.substringAfterLast(".", "mp4")
+            val targetFilename = "${baseName}_trimmed_${startMs / 1000}s_${endMs / 1000}s.$ext"
+
+            _trimProgressState.value = TrimProgress(
+                filename = targetFilename,
+                phase = "Downloading",
+                progress = 0f,
+                message = "Downloading video from source..."
+            )
+
+            // Insert initial pending download
+            val initialDownload = com.example.data.DownloadEntry(
+                filename = targetFilename,
+                url = videoUrl,
+                status = "Downloading",
+                size = "Pending"
+            )
+            val dbId = repository.insertDownload(initialDownload)
+
+            val tempSourceFile = java.io.File(context.cacheDir, "temp_source_${System.currentTimeMillis()}.mp4")
+            val tempDestFile = java.io.File(context.cacheDir, "temp_trimmed_${System.currentTimeMillis()}.mp4")
+
+            try {
+                // 1. Download source video to cacheDir
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                val request = okhttp3.Request.Builder()
+                    .url(videoUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw Exception("Failed to connect to video server (HTTP ${response.code})")
+                    }
+
+                    val body = response.body ?: throw Exception("Empty response body from video server")
+                    val contentLength = body.contentLength()
+                    val inputStream = body.byteStream()
+                    val outputStream = java.io.FileOutputStream(tempSourceFile)
+
+                    val buffer = ByteArray(64 * 1024)
+                    var bytesRead: Int
+                    var totalBytesRead = 0L
+
+                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                        outputStream.write(buffer, 0, bytesRead)
+                        totalBytesRead += bytesRead
+                        if (contentLength > 0) {
+                            val progress = totalBytesRead.toFloat() / contentLength.toFloat()
+                            _trimProgressState.value = TrimProgress(
+                                filename = targetFilename,
+                                phase = "Downloading",
+                                progress = progress * 0.8f, // Reserve last 20% for trimming
+                                message = "Downloading: ${(progress * 100).toInt()}%"
+                            )
+                        } else {
+                            _trimProgressState.value = TrimProgress(
+                                filename = targetFilename,
+                                phase = "Downloading",
+                                progress = 0.4f,
+                                message = "Downloading: ${String.format("%.2f MB", totalBytesRead.toFloat() / (1024 * 1024))}"
+                            )
+                        }
+                    }
+                    outputStream.flush()
+                    outputStream.close()
+                    inputStream.close()
+                }
+
+                // 2. Perform native trimming
+                _trimProgressState.value = TrimProgress(
+                    filename = targetFilename,
+                    phase = "Trimming",
+                    progress = 0.85f,
+                    message = "Trimming video piece..."
+                )
+
+                val trimSuccess = VideoTrimmerHelper.trimMp4(
+                    sourceFile = tempSourceFile,
+                    outputFile = tempDestFile,
+                    startMs = startMs,
+                    endMs = endMs
+                )
+
+                if (!trimSuccess) {
+                    throw Exception("Video cropping / trimming operation failed")
+                }
+
+                // 3. Move trimmed file to public Downloads folder
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS
+                )
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs()
+                }
+                val finalPublicFile = java.io.File(downloadsDir, targetFilename)
+                
+                // Copy/move processed file to public downloads
+                tempDestFile.copyTo(finalPublicFile, overwrite = true)
+
+                // Format nice readable size
+                val sizeBytes = finalPublicFile.length()
+                val readableSize = when {
+                    sizeBytes >= 1024 * 1024 -> String.format("%.2f MB", sizeBytes.toFloat() / (1024 * 1024))
+                    sizeBytes >= 1024 -> String.format("%.2f KB", sizeBytes.toFloat() / 1024)
+                    else -> "$sizeBytes bytes"
+                }
+
+                // Update download entry status in DB
+                repository.updateDownload(
+                    initialDownload.copy(
+                        id = dbId,
+                        status = "Completed",
+                        size = readableSize
+                    )
+                )
+
+                _trimProgressState.value = TrimProgress(
+                    filename = targetFilename,
+                    phase = "Success",
+                    progress = 1.0f,
+                    message = "Video cropped and saved to Downloads!"
+                )
+
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(context, "Cropped video saved to Downloads!", android.widget.Toast.LENGTH_LONG).show()
+                }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                repository.updateDownload(
+                    initialDownload.copy(
+                        id = dbId,
+                        status = "Failed",
+                        size = "0 KB"
+                    )
+                )
+
+                _trimProgressState.value = TrimProgress(
+                    filename = targetFilename,
+                    phase = "Failed",
+                    progress = 0f,
+                    message = "Error: ${e.message}"
+                )
+
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(context, "Trim failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                // Delete temp files
+                try {
+                    if (tempSourceFile.exists()) tempSourceFile.delete()
+                    if (tempDestFile.exists()) tempDestFile.delete()
+                } catch (ex: Exception) {
+                    ex.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun clearTrimProgress() {
+        _trimProgressState.value = null
+    }
+
+    fun setLowPowerModeEnabled(enabled: Boolean) {
+        _lowPowerModeEnabled.value = enabled
+        prefs.edit().putBoolean("low_power_mode_enabled", enabled).apply()
+    }
+
+    fun setBypassPaywallsEnabled(enabled: Boolean) {
+        _bypassPaywallsEnabled.value = enabled
+        prefs.edit().putBoolean("bypass_paywalls_enabled", enabled).apply()
+    }
+
+    fun setFullScreenReading(enabled: Boolean) {
+        _fullScreenReading.value = enabled
+    }
+
+    fun toggleTabSortMode() {
+        _tabSortMode.value = if (_tabSortMode.value == "Default") "ReadTime" else "Default"
+    }
+
+    fun updateTabReadTime(tabId: Long, wordCount: Int) {
+        val minutes = if (wordCount <= 0) 1 else kotlin.math.ceil(wordCount.toDouble() / 200.0).toInt().coerceAtLeast(1)
+        val updated = _tabReadTimes.value.toMutableMap()
+        updated[tabId] = minutes
+        _tabReadTimes.value = updated
+    }
+
+    fun toggleDesktopModeForTab(tabId: Long, context: android.content.Context) {
+        val updated = _tabDesktopModes.value.toMutableMap()
+        val isCurrentlyDesktop = updated[tabId] ?: false
+        val newMode = !isCurrentlyDesktop
+        updated[tabId] = newMode
+        _tabDesktopModes.value = updated
+        
+        // Apply UA to WebView
+        val wv = WebViewPool.getOrCreateWebView(context, tabId, this)
+        wv.settings.apply {
+            userAgentString = if (newMode) {
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            } else {
+                null
+            }
+            useWideViewPort = newMode
+            loadWithOverviewMode = newMode
+        }
+        wv.reload()
+    }
+
+    fun activateReaderMode(title: String, content: String) {
+        _readerTitle.value = title
+        _readerContent.value = content
+        _isReaderModeActive.value = true
+    }
+
+    fun deactivateReaderMode() {
+        _isReaderModeActive.value = false
+    }
+
+    fun setReaderTextSize(size: Int) {
+        _readerTextSize.value = size
+        prefs.edit().putInt("reader_text_size", size).apply()
+    }
+
+    fun setReaderTheme(theme: String) {
+        _readerTheme.value = theme
+        prefs.edit().putString("reader_theme", theme).apply()
+    }
+
+    fun setReaderFontFamily(family: String) {
+        _readerFontFamily.value = family
+        prefs.edit().putString("reader_font_family", family).apply()
+    }
+
+    fun oneTapClearEverything(context: android.content.Context) {
+        viewModelScope.launch {
+            // Clear database tables
+            repository.clearAllHistory()
+            repository.clearAllTabs()
+            _tabReadTimes.value = emptyMap()
+            _tabDesktopModes.value = emptyMap()
+            
+            // Clear WebView caches, cookies, databases
+            android.webkit.WebStorage.getInstance().deleteAllData()
+            val cookieManager = android.webkit.CookieManager.getInstance()
+            cookieManager.removeAllCookies(null)
+            cookieManager.flush()
+            
+            // Create a default tab
+            addTab()
+            
+            android.widget.Toast.makeText(context, "All tabs, cache and history cleared successfully!", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     class Factory(private val application: Application) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(BrowserViewModel::class.java)) {
@@ -2154,4 +3168,11 @@ data class SavedPassword(
     val site: String,
     val username: String,
     val password: String
+)
+
+data class TrimProgress(
+    val filename: String,
+    val phase: String, // "Downloading", "Trimming", "Success", "Failed"
+    val progress: Float, // 0.0 to 1.0
+    val message: String
 )
