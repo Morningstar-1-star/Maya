@@ -549,6 +549,48 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _fullScreenReading = MutableStateFlow(false)
     val fullScreenReading: StateFlow<Boolean> = _fullScreenReading.asStateFlow()
 
+    // Find on Page States
+    private val _findOnPageQuery = MutableStateFlow("")
+    val findOnPageQuery: StateFlow<String> = _findOnPageQuery.asStateFlow()
+
+    private val _findOnPageActive = MutableStateFlow(false)
+    val findOnPageActive: StateFlow<Boolean> = _findOnPageActive.asStateFlow()
+
+    private val _findOnPageMatchCount = MutableStateFlow(0)
+    val findOnPageMatchCount: StateFlow<Int> = _findOnPageMatchCount.asStateFlow()
+
+    private val _findOnPageMatchIndex = MutableStateFlow(0)
+    val findOnPageMatchIndex: StateFlow<Int> = _findOnPageMatchIndex.asStateFlow()
+
+    private val _findOnPageTrigger = MutableStateFlow<Boolean?>(null)
+    val findOnPageTrigger: StateFlow<Boolean?> = _findOnPageTrigger.asStateFlow()
+
+    fun findNextOnPage(forward: Boolean) {
+        _findOnPageTrigger.value = forward
+    }
+
+    fun clearFindOnPageTrigger() {
+        _findOnPageTrigger.value = null
+    }
+
+    fun setFindOnPageActive(active: Boolean) {
+        _findOnPageActive.value = active
+        if (!active) {
+            _findOnPageQuery.value = ""
+            _findOnPageMatchCount.value = 0
+            _findOnPageMatchIndex.value = 0
+        }
+    }
+
+    fun setFindOnPageQuery(query: String) {
+        _findOnPageQuery.value = query
+    }
+
+    fun updateFindOnPageMatches(index: Int, count: Int) {
+        _findOnPageMatchIndex.value = index
+        _findOnPageMatchCount.value = count
+    }
+
     private val _tabDesktopModes = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
     val tabDesktopModes: StateFlow<Map<Long, Boolean>> = _tabDesktopModes.asStateFlow()
 
@@ -828,6 +870,40 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
+        // Prepopulate default history entries if empty
+        viewModelScope.launch {
+            val existing = repository.allHistory.first()
+            if (existing.isEmpty()) {
+                repository.insertHistory(HistoryEntry(title = "WWE Official Website", url = "https://www.wwe.com"))
+                repository.insertHistory(HistoryEntry(title = "Wikipedia - World Wrestling Entertainment", url = "https://en.wikipedia.org/wiki/WWE"))
+                repository.insertHistory(HistoryEntry(title = "YouTube - WWE Official Channel", url = "https://www.youtube.com/user/WWEFanNation"))
+                repository.insertHistory(HistoryEntry(title = "Google Search - WWE Raw Results", url = "https://www.google.com/search?q=wwe+raw+results"))
+            }
+        }
+
+        // Prepopulate default downloads if empty
+        viewModelScope.launch {
+            val existing = repository.allDownloads.first()
+            if (existing.isEmpty()) {
+                repository.insertDownload(
+                    com.example.data.DownloadEntry(
+                        filename = "CapturedVideo_WWE_Highlights_Raw.mp4",
+                        url = "https://assets.mixkit.co/videos/preview/mixkit-introducing-apple-vision-pro-mock-48991-large.mp4",
+                        status = "Completed",
+                        size = "18.2 MB"
+                    )
+                )
+                repository.insertDownload(
+                    com.example.data.DownloadEntry(
+                        filename = "CapturedVideo_WrestleMania_Promo.mp4",
+                        url = "https://assets.mixkit.co/videos/preview/mixkit-android-14-promo-video-mock-48992-large.mp4",
+                        status = "Completed",
+                        size = "12.5 MB"
+                    )
+                )
+            }
+        }
+
         // Sync active tab ID and URL input when tabs change
         viewModelScope.launch {
             allTabs.collect { tabs ->
@@ -904,6 +980,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 repository.updateTab(tab.copy(title = title, url = url))
                 if (tabId == _activeTabId.value) {
                     _currentUrlInput.value = url
+                }
+                if (url.isNotEmpty() && url != "dineinstyle.com" && !url.startsWith("chrome://") && !url.startsWith("about:")) {
+                    val historyList = allHistory.value
+                    val lastEntry = historyList.firstOrNull()
+                    if (lastEntry == null || lastEntry.url != url) {
+                        repository.insertHistory(
+                            HistoryEntry(
+                                title = if (title.isBlank() || title == "Browser Tab") getDomainName(url) else title,
+                                url = url
+                            )
+                        )
+                    }
                 }
                 runAIAutoGroupingForTab(tabId, title, url)
             }

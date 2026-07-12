@@ -11,6 +11,7 @@ import java.nio.ByteBuffer
 object VideoTrimmerHelper {
     private const val TAG = "VideoTrimmerHelper"
 
+    @android.annotation.SuppressLint("WrongConstant")
     fun trimMp4(sourceFile: File, outputFile: File, startMs: Long, endMs: Long): Boolean {
         var extractor: MediaExtractor? = null
         var muxer: MediaMuxer? = null

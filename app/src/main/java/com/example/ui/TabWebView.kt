@@ -968,7 +968,10 @@ object WebViewPool {
                             if (!video || video.dataset.hasPremiumButton === "true") return;
                             video.dataset.hasPremiumButton = "true";
 
-                            var src = video.src || (video.getElementsByTagName('source')[0] && video.getElementsByTagName('source')[0].src) || "";
+                            var src = video.currentSrc || video.src || (video.getElementsByTagName('source')[0] && video.getElementsByTagName('source')[0].src) || "";
+                            if (src) {
+                                reportVideo(src);
+                            }
 
                             var btn = document.createElement('div');
                             btn.className = 'uc-premium-video-corner-play-btn';
@@ -1156,6 +1159,24 @@ object WebViewPool {
                 }
                 val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
                 manager.enqueue(request)
+                
+                // Track download in Database
+                val sizeString = if (contentLength > 0) {
+                    val kb = contentLength / 1024
+                    if (kb > 1024) "${kb / 1024} MB" else "$kb KB"
+                } else {
+                    "Unknown size"
+                }
+                viewModel.insertDownload(
+                    com.example.data.DownloadEntry(
+                        filename = filename,
+                        url = url,
+                        status = "Completed",
+                        size = sizeString,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+
                 android.widget.Toast.makeText(context, "Boosted download started: $filename", android.widget.Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 android.widget.Toast.makeText(webView.context, "Download failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
@@ -1221,6 +1242,34 @@ fun TabWebView(
             if (currentWebUrl != url) {
                 webView.loadUrl(url)
             }
+        }
+    }
+
+    // Find on Page logic integrated with Android WebView native text finding
+    val findOnPageActive by viewModel.findOnPageActive.collectAsState()
+    val findOnPageQuery by viewModel.findOnPageQuery.collectAsState()
+    val findOnPageTrigger by viewModel.findOnPageTrigger.collectAsState()
+
+    LaunchedEffect(findOnPageActive, findOnPageQuery) {
+        if (findOnPageActive) {
+            if (findOnPageQuery.isNotEmpty()) {
+                webView.setFindListener { activeMatchOrdinal, numberOfMatches, isDoneCounting ->
+                    viewModel.updateFindOnPageMatches(activeMatchOrdinal, numberOfMatches)
+                }
+                webView.findAllAsync(findOnPageQuery)
+            } else {
+                webView.clearMatches()
+                viewModel.updateFindOnPageMatches(0, 0)
+            }
+        } else {
+            webView.clearMatches()
+        }
+    }
+
+    LaunchedEffect(findOnPageTrigger) {
+        findOnPageTrigger?.let { forward ->
+            webView.findNext(forward)
+            viewModel.clearFindOnPageTrigger()
         }
     }
 

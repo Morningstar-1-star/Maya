@@ -39,6 +39,8 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.composed
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
@@ -408,6 +410,8 @@ fun BrowserScreen(
     var isSearchFocused by remember { mutableStateOf(false) }
     var showTabGroupManager by remember { mutableStateOf(false) }
     var isCookieEditorVisible by remember { mutableStateOf(false) }
+    var isOptionsMenuSheetVisible by remember { mutableStateOf(false) }
+    var isPrivacyGuardSheetVisible by remember { mutableStateOf(false) }
     var showWebsiteUpdatesDialog by remember { mutableStateOf(false) }
     var trimmingVideoMedia by remember { mutableStateOf<CapturedMedia?>(null) }
 
@@ -432,7 +436,7 @@ fun BrowserScreen(
         else -> isSystemDark
     }
 
-    val overlayActive = isAdBlockerPopupVisible || isTabSwitcherVisible || isBookmarksHistorySheetVisible || isMediaStudioVisible || isSettingsScreenVisible || isCookieEditorVisible || (detectedVideoMedia != null)
+    val overlayActive = isAdBlockerPopupVisible || isTabSwitcherVisible || isBookmarksHistorySheetVisible || isMediaStudioVisible || isSettingsScreenVisible || isCookieEditorVisible || isOptionsMenuSheetVisible || isPrivacyGuardSheetVisible || (detectedVideoMedia != null)
     val backgroundBlur by animateDpAsState(
         targetValue = if (overlayActive) 16.dp else 0.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -447,6 +451,12 @@ fun BrowserScreen(
     // Root level BackHandler for Predictive Back and hierarchical back navigation
     BackHandler(enabled = true) {
         when {
+            isPrivacyGuardSheetVisible -> {
+                isPrivacyGuardSheetVisible = false
+            }
+            isOptionsMenuSheetVisible -> {
+                isOptionsMenuSheetVisible = false
+            }
             isTabSwitcherVisible -> {
                 viewModel.setTabSwitcherVisible(false)
             }
@@ -694,7 +704,8 @@ fun BrowserScreen(
                                     }
                                 }
                             },
-                            activeTabReadTime = activeTabReadTime
+                            activeTabReadTime = activeTabReadTime,
+                            onOptionsClick = { isOptionsMenuSheetVisible = true }
                         )
                     }
                 }
@@ -804,6 +815,101 @@ fun BrowserScreen(
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     }
+
+                                    // FLOATING FIND-ON-PAGE UI BAR OVERLAY
+                                    val findOnPageActive by viewModel.findOnPageActive.collectAsStateWithLifecycle()
+                                    val findOnPageQuery by viewModel.findOnPageQuery.collectAsStateWithLifecycle()
+                                    val findOnPageMatchCount by viewModel.findOnPageMatchCount.collectAsStateWithLifecycle()
+                                    val findOnPageMatchIndex by viewModel.findOnPageMatchIndex.collectAsStateWithLifecycle()
+
+                                    if (findOnPageActive) {
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(8.dp)
+                                                .align(Alignment.TopCenter),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                            ),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Search,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                androidx.compose.foundation.text.BasicTextField(
+                                                    value = findOnPageQuery,
+                                                    onValueChange = {
+                                                        viewModel.setFindOnPageQuery(it)
+                                                    },
+                                                    modifier = Modifier.weight(1f),
+                                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        fontSize = androidx.compose.ui.unit.TextUnit.Unspecified
+                                                    ),
+                                                    singleLine = true,
+                                                    decorationBox = { innerTextField ->
+                                                        if (findOnPageQuery.isEmpty()) {
+                                                            Text(
+                                                                text = "Find on page...",
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                                style = MaterialTheme.typography.bodyMedium
+                                                            )
+                                                        }
+                                                        innerTextField()
+                                                    }
+                                                )
+                                                if (findOnPageQuery.isNotEmpty()) {
+                                                    Text(
+                                                        text = if (findOnPageMatchCount > 0) "${findOnPageMatchIndex + 1}/$findOnPageMatchCount" else "0/0",
+                                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { viewModel.findNextOnPage(false) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ChevronLeft,
+                                                        contentDescription = "Previous Match",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { viewModel.findNextOnPage(true) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ChevronRight,
+                                                        contentDescription = "Next Match",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { viewModel.setFindOnPageActive(false) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Close Find",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                             }
+                                         }
+                                     }
                                 }
                             }
                         }
@@ -930,6 +1036,23 @@ fun BrowserScreen(
                 onClearHistory = { viewModel.clearHistory() },
                 onClose = { viewModel.setBookmarksHistorySheetVisible(false) },
                 onToggleWatchMode = { url -> viewModel.toggleBookmarkWatchMode(url) }
+            )
+        }
+
+        // --- 5a. Privacy Guard Bottom Sheet ---
+        AnimatedVisibility(
+            visible = isPrivacyGuardSheetVisible,
+            enter = slideInVertically(initialOffsetY = { it }, animationSpec = spring(stiffness = 350f, dampingRatio = 0.82f)),
+            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = spring(stiffness = 350f, dampingRatio = 0.82f)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .zIndex(101f)
+        ) {
+            PrivacyGuardSheet(
+                viewModel = viewModel,
+                activeTab = activeTab,
+                onClose = { isPrivacyGuardSheetVisible = false }
             )
         }
 
@@ -1080,6 +1203,103 @@ fun BrowserScreen(
                     if (activeId != null) {
                         val wv = WebViewPool.getOrCreateWebView(context, activeId, viewModel)
                         wv.reload()
+                    }
+                }
+            )
+        }
+
+        // --- Scrim for Options Menu Sheet ---
+        if (isOptionsMenuSheetVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { isOptionsMenuSheetVisible = false })
+                    }
+                    .zIndex(99f)
+            )
+        }
+
+        // --- 5g. Three-Dots Settings Menu Sheet ---
+        AnimatedVisibility(
+            visible = isOptionsMenuSheetVisible,
+            enter = slideInVertically(initialOffsetY = { it }, animationSpec = spring(stiffness = 300f, dampingRatio = 0.82f)),
+            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = spring(stiffness = 300f, dampingRatio = 0.82f)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .zIndex(100f)
+        ) {
+            BrowserOptionsMenu(
+                viewModel = viewModel,
+                expanded = isOptionsMenuSheetVisible,
+                onDismissRequest = { isOptionsMenuSheetVisible = false },
+                onShieldClick = { isPrivacyGuardSheetVisible = true },
+                onBookmarksClick = {
+                    isOptionsMenuSheetVisible = false
+                    viewModel.toggleBookmarksHistorySheet(0)
+                },
+                onHistoryClick = {
+                    isOptionsMenuSheetVisible = false
+                    viewModel.toggleBookmarksHistorySheet(1)
+                },
+                onMediaStudioClick = {
+                    isOptionsMenuSheetVisible = false
+                    viewModel.setMediaStudioVisible(true)
+                },
+                onClearCacheClick = {
+                    isOptionsMenuSheetVisible = false
+                    WebView(context).clearCache(true)
+                    viewModel.clearBlockedAds(activeTabId ?: 0)
+                },
+                onSettingsClick = {
+                    isOptionsMenuSheetVisible = false
+                    viewModel.setSettingsScreenVisible(true)
+                },
+                onHomeClick = {
+                    isOptionsMenuSheetVisible = false
+                    viewModel.loadUrl("dineinstyle.com")
+                },
+                onNewTabClick = {
+                    isOptionsMenuSheetVisible = false
+                    viewModel.addTab()
+                },
+                menuShowReader = menuShowReader,
+                menuPageZoom = menuPageZoom,
+                menuFindOnPage = menuFindOnPage,
+                menuRequestDesktop = menuRequestDesktop,
+                menuAddToHome = menuAddToHome,
+                menuDeveloperTools = menuDeveloperTools,
+                onCookieEditorClick = {
+                    isOptionsMenuSheetVisible = false
+                    isCookieEditorVisible = true
+                },
+                copyUnblockActive = viewModel.isCopyUnblockActiveForUrl(activeTab?.url),
+                onToggleCopyUnblock = {
+                    viewModel.toggleCopyUnblockForUrl(activeTab?.url)
+                },
+                themeMode = themeMode,
+                aiSmartSummarizerEnabled = aiSmartSummarizerEnabled,
+                onAiSummarizeClick = {
+                    isOptionsMenuSheetVisible = false
+                    val activeId = activeTabId
+                    if (activeId != null) {
+                        val wv = WebViewPool.getOrCreateWebView(context, activeId, viewModel)
+                        wv.evaluateJavascript(
+                            "(function() { " +
+                            "   var text = ''; " +
+                            "   var els = document.querySelectorAll('h1, h2, h3, p, article'); " +
+                            "   for (var i = 0; i < els.length; i++) { " +
+                            "       text += els[i].innerText + '\\n'; " +
+                            "       if (text.length > 5000) break; " +
+                            "   } " +
+                            "   return text; " +
+                            "})()"
+                        ) { result ->
+                            val cleanText = result?.trim()?.removeSurrounding("\"")?.replace("\\\\n", "\n")?.replace("\\n", "\n") ?: ""
+                            viewModel.summarizeCurrentPage(cleanText.ifBlank { "No readable article content found on this page." })
+                        }
                     }
                 }
             )
@@ -1519,7 +1739,8 @@ fun BrowserScreen(
                     menuFindOnPage = menuFindOnPage,
                     menuRequestDesktop = menuRequestDesktop,
                     menuAddToHome = menuAddToHome,
-                    menuDeveloperTools = menuDeveloperTools
+                    menuDeveloperTools = menuDeveloperTools,
+                    onOptionsClick = { isOptionsMenuSheetVisible = true }
                 )
             }
         } else {
@@ -1675,7 +1896,8 @@ fun BrowserScreen(
                                 }
                             }
                         },
-                        activeTabReadTime = activeTabReadTime
+                        activeTabReadTime = activeTabReadTime,
+                        onOptionsClick = { isOptionsMenuSheetVisible = true }
                     )
                 }
 
@@ -1696,7 +1918,8 @@ fun BrowserScreen(
                     menuFindOnPage = menuFindOnPage,
                     menuRequestDesktop = menuRequestDesktop,
                     menuAddToHome = menuAddToHome,
-                    menuDeveloperTools = menuDeveloperTools
+                    menuDeveloperTools = menuDeveloperTools,
+                    onOptionsClick = { isOptionsMenuSheetVisible = true }
                 )
             }
         }
@@ -2026,6 +2249,48 @@ fun AnimatedIconButton(
     }
 }
 
+// --- SHADOWED ICON BUTTON FOR GLOBAL DELIGHTFUL TOUCH ANIMATION ---
+@Composable
+fun IconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    AnimatedIconButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        content = content
+    )
+}
+
+// --- BOUNCY CLICKABLE MODIFIER FOR CHIPS, LIST ITEMS, AND TEXT ROWS ---
+fun Modifier.bouncyClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) = composed {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.88f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = 0.45f,
+            stiffness = 500f
+        ),
+        label = "bouncy_click_scale"
+    )
+
+    this
+        .scale(scale)
+        .clickable(
+            interactionSource = interactionSource,
+            indication = androidx.compose.foundation.LocalIndication.current,
+            enabled = enabled,
+            onClick = onClick
+        )
+}
+
 // --- REUSABLE THEME-AWARE BOTTOM NAVIGATION BAR ---
 @Composable
 fun BottomNavigationBar(
@@ -2045,7 +2310,8 @@ fun BottomNavigationBar(
     menuRequestDesktop: Boolean,
     menuAddToHome: Boolean,
     menuDeveloperTools: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOptionsClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val tabDesktopModes by viewModel.tabDesktopModes.collectAsStateWithLifecycle()
@@ -2157,200 +2423,16 @@ fun BottomNavigationBar(
             }
 
             // 5. Options Menu Icon (...)
-            var isMenuExpanded by remember { mutableStateOf(false) }
-            Box {
-                AnimatedIconButton(
-                    onClick = { isMenuExpanded = !isMenuExpanded },
-                    modifier = Modifier.testTag("nav_options_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "More Options",
-                        tint = navContentColor.copy(alpha = 0.65f),
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = isMenuExpanded,
-                    onDismissRequest = { isMenuExpanded = false },
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Bookmarks") },
-                        leadingIcon = { Icon(Icons.Default.Book, "Bookmarks") },
-                        onClick = {
-                            isMenuExpanded = false
-                            viewModel.toggleBookmarksHistorySheet(0)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("History") },
-                        leadingIcon = { Icon(Icons.Default.History, "History") },
-                        onClick = {
-                            isMenuExpanded = false
-                            viewModel.toggleBookmarksHistorySheet(1)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Media Studio Center") },
-                        leadingIcon = { Icon(Icons.Default.Collections, "Media Studio") },
-                        onClick = {
-                            isMenuExpanded = false
-                            viewModel.toggleMediaStudio()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Clear All Cache") },
-                        leadingIcon = { Icon(Icons.Default.DeleteSweep, "Clear cache") },
-                        onClick = {
-                            isMenuExpanded = false
-                            WebView(context).clearCache(true)
-                            viewModel.clearBlockedAds(activeTab?.id ?: 0)
-                        }
-                    )
-
-                    // Custom Toggles
-                    if (menuShowReader) {
-                        DropdownMenuItem(
-                            text = { Text("Reader Mode") },
-                            leadingIcon = { Icon(Icons.Default.Book, "Reader") },
-                            onClick = {
-                                isMenuExpanded = false
-                                val activeId = activeTab?.id
-                                if (activeId != null) {
-                                    val wv = WebViewPool.getOrCreateWebView(context, activeId, viewModel)
-                                    val js = """
-                                        (function() {
-                                            var title = document.querySelector('h1')?.innerText || document.title || 'Untitled Article';
-                                            var paras = document.querySelectorAll('article p, p, h2, h3');
-                                            var text = '';
-                                            for (var i = 0; i < paras.length; i++) {
-                                                text += paras[i].innerText + '\n\n';
-                                                if (text.length > 20000) break;
-                                            }
-                                            return JSON.stringify({ title: title, content: text.trim() });
-                                        })()
-                                    """.trimIndent()
-                                    wv.evaluateJavascript(js) { result ->
-                                        try {
-                                            if (!result.isNullOrEmpty() && result != "null") {
-                                                val jsonStr = if (result.startsWith("\"")) {
-                                                    org.json.JSONTokener(result).nextValue().toString()
-                                                } else {
-                                                    result
-                                                }
-                                                val obj = org.json.JSONObject(jsonStr)
-                                                val t = obj.optString("title", "Untitled Article")
-                                                val c = obj.optString("content", "")
-                                                if (c.isNotEmpty()) {
-                                                    viewModel.activateReaderMode(t, c)
-                                                } else {
-                                                    android.widget.Toast.makeText(context, "No article content detected on this page.", android.widget.Toast.LENGTH_SHORT).show()
-                                                }
-                                            } else {
-                                                android.widget.Toast.makeText(context, "Failed to read page content.", android.widget.Toast.LENGTH_SHORT).show()
-                                            }
-                                        } catch (e: Exception) {
-                                            android.widget.Toast.makeText(context, "No readable article content found.", android.widget.Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            }
-                        )
-                    }
-                    if (menuPageZoom) {
-                        DropdownMenuItem(
-                            text = { Text("Zoom Controls") },
-                            leadingIcon = { Icon(Icons.Default.Add, "Zoom") },
-                            onClick = {
-                                isMenuExpanded = false
-                                viewModel.setSettingsScreenVisible(true)
-                            }
-                        )
-                    }
-                    if (menuFindOnPage) {
-                        DropdownMenuItem(
-                            text = { Text("Find on Page") },
-                            leadingIcon = { Icon(Icons.Default.Search, "Find") },
-                            onClick = { isMenuExpanded = false }
-                        )
-                    }
-                    if (menuRequestDesktop) {
-                        val isDesktop = tabDesktopModes[activeTab?.id ?: 0] ?: false
-                        DropdownMenuItem(
-                            text = { Text(if (isDesktop) "Request Mobile Site" else "Request Desktop Site") },
-                            leadingIcon = { Icon(if (isDesktop) Icons.Default.Smartphone else Icons.Default.Monitor, "Desktop") },
-                            onClick = {
-                                isMenuExpanded = false
-                                viewModel.toggleDesktopModeForTab(activeTab?.id ?: 0, context)
-                            }
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Translate Page (Google)") },
-                        leadingIcon = { Icon(Icons.Default.Translate, "Translate") },
-                        onClick = {
-                            isMenuExpanded = false
-                            val currentUrl = activeTab?.url ?: ""
-                            if (currentUrl.isNotEmpty() && currentUrl != "dineinstyle.com") {
-                                val translateUrl = "https://translate.google.com/translate?sl=auto&tl=en&u=" + android.net.Uri.encode(currentUrl)
-                                viewModel.loadUrl(translateUrl)
-                            } else {
-                                android.widget.Toast.makeText(context, "Open a website first to translate.", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Full Screen Reading") },
-                        leadingIcon = { Icon(Icons.Default.Fullscreen, "Full Screen") },
-                        onClick = {
-                            isMenuExpanded = false
-                            viewModel.setFullScreenReading(true)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Clear Tabs & Cache") },
-                        leadingIcon = { Icon(Icons.Default.DeleteForever, "Clear") },
-                        onClick = {
-                            isMenuExpanded = false
-                            viewModel.oneTapClearEverything(context)
-                        }
-                    )
-                    if (menuAddToHome) {
-                        DropdownMenuItem(
-                            text = { Text("Add to Home") },
-                            leadingIcon = { Icon(Icons.Default.Add, "Add to Home") },
-                            onClick = { isMenuExpanded = false }
-                        )
-                    }
-                    if (menuDeveloperTools) {
-                        DropdownMenuItem(
-                            text = { Text("Developer Tools") },
-                            leadingIcon = { Icon(Icons.Default.Refresh, "Developer") },
-                            onClick = { isMenuExpanded = false }
-                        )
-                    }
-
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Settings") },
-                        leadingIcon = { Icon(Icons.Default.Settings, "Settings") },
-                        onClick = {
-                            isMenuExpanded = false
-                            viewModel.setSettingsScreenVisible(true)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Start Page") },
-                        leadingIcon = { Icon(Icons.Default.Home, "Start Page Home") },
-                        onClick = {
-                            isMenuExpanded = false
-                            viewModel.loadUrl("dineinstyle.com")
-                        }
-                    )
-                }
+            AnimatedIconButton(
+                onClick = onOptionsClick,
+                modifier = Modifier.testTag("nav_options_btn")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreHoriz,
+                    contentDescription = "More Options",
+                    tint = navContentColor.copy(alpha = 0.65f),
+                    modifier = Modifier.size(26.dp)
+                )
             }
         }
     }
@@ -2403,7 +2485,8 @@ fun AddressBar(
     onUpdatesClick: () -> Unit = {},
     aiSmartSummarizerEnabled: Boolean = false,
     onAiSummarizeClick: () -> Unit = {},
-    activeTabReadTime: Int? = null
+    activeTabReadTime: Int? = null,
+    onOptionsClick: () -> Unit = {}
 ) {
     val isDarkTheme = when (themeMode) {
         "light" -> false
@@ -2502,7 +2585,7 @@ fun AddressBar(
                             shape = RoundedCornerShape(20.dp)
                         )
                         .clip(RoundedCornerShape(20.dp))
-                        .clickable { onAddressBarClick() }
+                        .bouncyClickable { onAddressBarClick() }
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -2632,10 +2715,9 @@ fun AddressBar(
                     Spacer(modifier = Modifier.width(4.dp))
 
                     // 3-Dots Options Menu
-                    var isMenuExpanded by remember { mutableStateOf(false) }
                     Box {
                         AnimatedIconButton(
-                            onClick = { isMenuExpanded = !isMenuExpanded },
+                            onClick = onOptionsClick,
                             modifier = Modifier
                                 .size(32.dp)
                                 .testTag("address_options_btn")
@@ -2647,31 +2729,6 @@ fun AddressBar(
                                 modifier = Modifier.size(24.dp)
                             )
                         }
-
-                         BrowserOptionsMenu(
-                            viewModel = viewModel,
-                            expanded = isMenuExpanded,
-                            onDismissRequest = { isMenuExpanded = false },
-                            onBookmarksClick = onBookmarksClick,
-                            onHistoryClick = onHistoryClick,
-                            onMediaStudioClick = onMediaStudioClick,
-                            onClearCacheClick = onClearCacheClick,
-                            onSettingsClick = onSettingsClick,
-                            onHomeClick = onHomeClick,
-                            onNewTabClick = onNewTabClick,
-                            menuShowReader = menuShowReader,
-                            menuPageZoom = menuPageZoom,
-                            menuFindOnPage = menuFindOnPage,
-                            menuRequestDesktop = menuRequestDesktop,
-                            menuAddToHome = menuAddToHome,
-                            menuDeveloperTools = menuDeveloperTools,
-                            onCookieEditorClick = onCookieEditorClick,
-                            copyUnblockActive = copyUnblockActive,
-                            onToggleCopyUnblock = onToggleCopyUnblock,
-                            themeMode = themeMode,
-                            aiSmartSummarizerEnabled = aiSmartSummarizerEnabled,
-                            onAiSummarizeClick = onAiSummarizeClick
-                        )
                     }
                 }
             }
@@ -2703,235 +2760,1094 @@ fun BrowserOptionsMenu(
     themeMode: String = "dark",
     aiSmartSummarizerEnabled: Boolean = false,
     onAiSummarizeClick: () -> Unit = {},
+    onShieldClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val allTabs by viewModel.allTabs.collectAsStateWithLifecycle()
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
     val tabDesktopModes by viewModel.tabDesktopModes.collectAsStateWithLifecycle()
     val activeTab = allTabs.find { it.id == activeTabId }
+    var aiSummarizeClickCount by remember { mutableStateOf(0) }
 
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismissRequest,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-    ) {
-        com.example.ui.theme.MyApplicationTheme(themeMode = themeMode) {
-            Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-                if (onNewTabClick != null) {
-                    DropdownMenuItem(
-                        text = { Text("New Tab") },
-                        leadingIcon = { Icon(Icons.Default.Add, "New Tab") },
-                        onClick = {
-                            onDismissRequest()
-                            onNewTabClick()
-                        }
+    val displayDomain = remember(activeTab?.url) {
+        val url = activeTab?.url ?: ""
+        try {
+            var d = url
+            if (d.startsWith("http://")) d = d.substring(7)
+            else if (d.startsWith("https://")) d = d.substring(8)
+            val slashIdx = d.indexOf('/')
+            val domain = if (slashIdx != -1) d.substring(0, slashIdx) else d
+            if (domain.isBlank() || domain == "dineinstyle.com") "Start Page" else domain
+        } catch (e: Exception) {
+            "Start Page"
+        }
+    }
+
+    com.example.ui.theme.MyApplicationTheme(themeMode = themeMode) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Drag Handle
+                Box(
+                    modifier = Modifier
+                        .padding(top = 4.dp, bottom = 10.dp)
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f), CircleShape)
+                )
+
+                // SECTION 1: SLEEK COMBINED QUICK ACTIONS ROW
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                     )
-                }
-        DropdownMenuItem(
-            text = { Text("Bookmarks") },
-            leadingIcon = { Icon(Icons.Default.Book, "Bookmarks") },
-            onClick = {
-                onDismissRequest()
-                onBookmarksClick()
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("History") },
-            leadingIcon = { Icon(Icons.Default.History, "History") },
-            onClick = {
-                onDismissRequest()
-                onHistoryClick()
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("Media Studio Center") },
-            leadingIcon = { Icon(Icons.Default.Collections, "Media Studio") },
-            onClick = {
-                onDismissRequest()
-                onMediaStudioClick()
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("Clear All Cache") },
-            leadingIcon = { Icon(Icons.Default.DeleteSweep, "Clear cache") },
-            onClick = {
-                onDismissRequest()
-                onClearCacheClick()
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("Cookie-Editor") },
-            leadingIcon = { Icon(Icons.Default.Cookie, "Cookie-Editor") },
-            onClick = {
-                onDismissRequest()
-                onCookieEditorClick()
-            },
-            modifier = Modifier.testTag("menu_cookie_editor_btn")
-        )
-        DropdownMenuItem(
-            text = { Text(if (copyUnblockActive) "Unblock Copy: ON" else "Unblock Copy: OFF") },
-            leadingIcon = { Icon(Icons.Default.ContentCopy, "Unblock Copy") },
-            onClick = {
-                onDismissRequest()
-                onToggleCopyUnblock()
-            },
-            modifier = Modifier.testTag("menu_toggle_copy_unblock_btn")
-        )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 1. Favorites
+                        QuickGridItem(
+                            title = "Favorites",
+                            icon = Icons.Default.Favorite,
+                            iconColor = Color(0xFFEF4444),
+                            animType = IconAnimType.BOUNCE,
+                            onClick = onBookmarksClick
+                        )
 
-        // Custom Toggles
-        if (menuShowReader) {
-            DropdownMenuItem(
-                text = { Text("Reader Mode") },
-                leadingIcon = { Icon(Icons.Default.Book, "Reader") },
-                onClick = {
-                    onDismissRequest()
-                    val activeId = activeTab?.id
-                    if (activeId != null) {
-                        val wv = WebViewPool.getOrCreateWebView(context, activeId, viewModel)
-                        val js = """
-                            (function() {
-                                var title = document.querySelector('h1')?.innerText || document.title || 'Untitled Article';
-                                var paras = document.querySelectorAll('article p, p, h2, h3');
-                                var text = '';
-                                for (var i = 0; i < paras.length; i++) {
-                                    text += paras[i].innerText + '\n\n';
-                                    if (text.length > 20000) break;
-                                }
-                                return JSON.stringify({ title: title, content: text.trim() });
-                            })()
-                        """.trimIndent()
-                        wv.evaluateJavascript(js) { result ->
-                            try {
-                                if (!result.isNullOrEmpty() && result != "null") {
-                                    val jsonStr = if (result.startsWith("\"")) {
-                                        org.json.JSONTokener(result).nextValue().toString()
-                                    } else {
-                                        result
-                                    }
-                                    val obj = org.json.JSONObject(jsonStr)
-                                    val t = obj.optString("title", "Untitled Article")
-                                    val c = obj.optString("content", "")
-                                    if (c.isNotEmpty()) {
-                                        viewModel.activateReaderMode(t, c)
-                                    } else {
-                                        android.widget.Toast.makeText(context, "No article content detected on this page.", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    android.widget.Toast.makeText(context, "Failed to read page content.", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                android.widget.Toast.makeText(context, "No readable article content found.", android.widget.Toast.LENGTH_SHORT).show()
+                        // 2. History
+                        QuickGridItem(
+                            title = "History",
+                            icon = Icons.Default.History,
+                            iconColor = Color(0xFFA855F7),
+                            animType = IconAnimType.SPIN,
+                            onClick = onHistoryClick
+                        )
+
+                        // 3. Downloads
+                        QuickGridItem(
+                            title = "Downloads",
+                            icon = Icons.Default.Download,
+                            iconColor = Color(0xFFF97316),
+                            animType = IconAnimType.BOUNCE,
+                            onClick = {
+                                viewModel.setSheetTab(2)
+                                onDismissRequest()
+                                viewModel.setBookmarksHistorySheetVisible(true)
                             }
+                        )
+
+                        // 4. Playlist
+                        QuickGridItem(
+                            title = "Playlist",
+                            icon = Icons.Default.VideoLibrary,
+                            iconColor = Color(0xFFEC4899),
+                            animType = IconAnimType.WIGGLE,
+                            onClick = onMediaStudioClick
+                        )
+
+                        // 5. Settings
+                        QuickGridItem(
+                            title = "Settings",
+                            icon = Icons.Default.Settings,
+                            iconColor = Color(0xFF3B82F6),
+                            animType = IconAnimType.SPIN,
+                            onClick = onSettingsClick
+                        )
+                    }
+                }
+
+                // SECTION 2: PAGE ACTIONS CARD (Slim & Light)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        // Header Row with Domain
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = displayDomain,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.2.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            // Shield/Security Button
+                            AnimatedIconButton(
+                                onClick = {
+                                    onDismissRequest()
+                                    onShieldClick()
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = "Shield Settings",
+                                    tint = if (viewModel.adBlockerOn.collectAsStateWithLifecycle().value) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(2.dp))
+                            // Share Button
+                            AnimatedIconButton(
+                                onClick = {
+                                    val currentUrl = activeTab?.url ?: ""
+                                    if (currentUrl.isNotEmpty()) {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, currentUrl)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share URL"))
+                                    }
+                                    onDismissRequest()
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
+                        )
+
+                        // Scrollable List of Actions for better fit
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // AI PAGE SUMMARIZER (Special Premium Card if enabled)
+                            if (aiSmartSummarizerEnabled) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    Color(0xFF818CF8).copy(alpha = 0.15f),
+                                                    Color(0xFFEC4899).copy(alpha = 0.15f)
+                                                )
+                                            )
+                                        )
+                                        .bouncyClickable {
+                                            aiSummarizeClickCount++
+                                            onDismissRequest()
+                                            onAiSummarizeClick()
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    MicroAnimatedIcon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "AI Summarizer",
+                                        tint = Color(0xFF818CF8),
+                                        modifier = Modifier.size(20.dp),
+                                        animType = IconAnimType.PULSE,
+                                        triggerSignal = aiSummarizeClickCount
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = "AI Page Summarizer",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            brush = Brush.horizontalGradient(
+                                                colors = listOf(Color(0xFF818CF8), Color(0xFFF472B6))
+                                            )
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = null,
+                                        tint = Color(0xFF818CF8),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            // 1. Translate to English
+                            PageActionItem(
+                                title = "Translate Page (Google)",
+                                icon = Icons.Default.Translate,
+                                animType = IconAnimType.BOUNCE,
+                                rightContent = {
+                                    IconButton(
+                                        onClick = {
+                                            Toast.makeText(context, "Translation Language: English", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Settings, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                    }
+                                },
+                                onClick = {
+                                    onDismissRequest()
+                                    val currentUrl = activeTab?.url ?: ""
+                                    if (currentUrl.isNotEmpty() && currentUrl != "dineinstyle.com") {
+                                        val translateUrl = "https://translate.google.com/translate?sl=auto&tl=en&u=" + Uri.encode(currentUrl)
+                                        viewModel.loadUrl(translateUrl)
+                                    } else {
+                                        Toast.makeText(context, "Open a website first to translate.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+
+                            // 2. Show Reader
+                            if (menuShowReader) {
+                                PageActionItem(
+                                    title = "Show Reader Mode",
+                                    icon = Icons.Default.Book,
+                                    animType = IconAnimType.WIGGLE,
+                                    rightContent = {
+                                        IconButton(
+                                            onClick = {
+                                                Toast.makeText(context, "Font & Theme size can be configured inside Reader.", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.Settings, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                        }
+                                    },
+                                    onClick = {
+                                        onDismissRequest()
+                                        val activeId = activeTab?.id
+                                        if (activeId != null) {
+                                            val wv = WebViewPool.getOrCreateWebView(context, activeId, viewModel)
+                                            val js = """
+                                                (function() {
+                                                    var title = document.querySelector('h1')?.innerText || document.title || 'Untitled Article';
+                                                    var paras = document.querySelectorAll('article p, p, h2, h3');
+                                                    var text = '';
+                                                    for (var i = 0; i < paras.length; i++) {
+                                                        text += paras[i].innerText + '\n\n';
+                                                        if (text.length > 20000) break;
+                                                    }
+                                                    return JSON.stringify({ title: title, content: text.trim() });
+                                                })()
+                                            """.trimIndent()
+                                            wv.evaluateJavascript(js) { result ->
+                                                try {
+                                                    if (!result.isNullOrEmpty() && result != "null") {
+                                                        val jsonStr = if (result.startsWith("\"")) {
+                                                            org.json.JSONTokener(result).nextValue().toString()
+                                                        } else {
+                                                            result
+                                                        }
+                                                        val obj = org.json.JSONObject(jsonStr)
+                                                        val t = obj.optString("title", "Untitled Article")
+                                                        val c = obj.optString("content", "")
+                                                        if (c.isNotEmpty()) {
+                                                            viewModel.activateReaderMode(t, c)
+                                                        } else {
+                                                            Toast.makeText(context, "No article content detected on this page.", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    } else {
+                                                        Toast.makeText(context, "Failed to read page content.", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "No readable article content found.", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+
+                            // 3. Page Zoom with interactive controls inside the row
+                            if (menuPageZoom) {
+                                val textZoom by viewModel.webTextZoom.collectAsStateWithLifecycle()
+                                val textZoomPercent = (textZoom * 100).toInt()
+                                PageActionItem(
+                                    title = "Page Zoom",
+                                    icon = Icons.Default.ZoomIn,
+                                    animType = IconAnimType.BOUNCE,
+                                    rightContent = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.setWebTextZoom(maxOf(0.5f, textZoom - 0.1f))
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Text("-", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                            }
+                                            Text(
+                                                text = "$textZoomPercent%",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.setWebTextZoom(minOf(2.0f, textZoom + 0.1f))
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Text("+", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        Toast.makeText(context, "Use inline - and + to change page text scale.", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+
+                            // 4. Find on Page
+                            if (menuFindOnPage) {
+                                PageActionItem(
+                                    title = "Find on Page",
+                                    icon = Icons.Default.Search,
+                                    animType = IconAnimType.WIGGLE,
+                                    onClick = {
+                                        onDismissRequest()
+                                        viewModel.setFindOnPageActive(true)
+                                    }
+                                )
+                            }
+
+                            // 5. Request Desktop / Mobile Site
+                            if (menuRequestDesktop) {
+                                val isDesktop = tabDesktopModes[activeTab?.id ?: 0] ?: false
+                                PageActionItem(
+                                    title = if (isDesktop) "Request Mobile Site" else "Request Desktop Site",
+                                    icon = if (isDesktop) Icons.Default.Smartphone else Icons.Default.Monitor,
+                                    animType = IconAnimType.SPIN,
+                                    onClick = {
+                                        onDismissRequest()
+                                        viewModel.toggleDesktopModeForTab(activeTab?.id ?: 0, context)
+                                    }
+                                )
+                            }
+
+                            // 6. Cookie-Editor
+                            PageActionItem(
+                                title = "Cookie-Editor",
+                                icon = Icons.Default.Cookie,
+                                animType = IconAnimType.BOUNCE,
+                                onClick = {
+                                    onDismissRequest()
+                                    onCookieEditorClick()
+                                }
+                            )
+
+                            // 7. Unblock Copy
+                            PageActionItem(
+                                title = if (copyUnblockActive) "Unblock Copy: ON" else "Unblock Copy: OFF",
+                                icon = Icons.Default.ContentCopy,
+                                animType = IconAnimType.PULSE,
+                                onClick = {
+                                    onDismissRequest()
+                                    onToggleCopyUnblock()
+                                }
+                            )
+
+                            // 8. Full Screen Reading Mode
+                            PageActionItem(
+                                title = "Full Screen Reading",
+                                icon = Icons.Default.Fullscreen,
+                                animType = IconAnimType.BOUNCE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setFullScreenReading(true)
+                                }
+                            )
+
+                            // 9. Start Page / Home
+                            PageActionItem(
+                                title = "Start Page",
+                                icon = Icons.Default.Home,
+                                animType = IconAnimType.SPIN,
+                                onClick = {
+                                    onDismissRequest()
+                                    onHomeClick()
+                                }
+                            )
+
+                            // 10. New Tab
+                            if (onNewTabClick != null) {
+                                PageActionItem(
+                                    title = "New Tab",
+                                    icon = Icons.Default.Add,
+                                    animType = IconAnimType.BOUNCE,
+                                    onClick = {
+                                        onDismissRequest()
+                                        onNewTabClick()
+                                    }
+                                )
+                            }
+
+                            // 11. Clear Tabs & Cache
+                            PageActionItem(
+                                title = "Clear Tabs & Cache",
+                                icon = Icons.Default.DeleteForever,
+                                animType = IconAnimType.WIGGLE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.oneTapClearEverything(context)
+                                }
+                            )
                         }
                     }
                 }
-            )
-        }
-        if (menuPageZoom) {
-            DropdownMenuItem(
-                text = { Text("Zoom Controls") },
-                leadingIcon = { Icon(Icons.Default.Add, "Zoom") },
-                onClick = {
-                    onDismissRequest()
-                    onSettingsClick()
-                }
-            )
-        }
-        if (menuFindOnPage) {
-            DropdownMenuItem(
-                text = { Text("Find on Page") },
-                leadingIcon = { Icon(Icons.Default.Search, "Find") },
-                onClick = { onDismissRequest() }
-            )
-        }
-        if (menuRequestDesktop) {
-            val isDesktop = tabDesktopModes[activeTab?.id ?: 0] ?: false
-            DropdownMenuItem(
-                text = { Text(if (isDesktop) "Request Mobile Site" else "Request Desktop Site") },
-                leadingIcon = { Icon(if (isDesktop) Icons.Default.Smartphone else Icons.Default.Monitor, "Desktop") },
-                onClick = {
-                    onDismissRequest()
-                    viewModel.toggleDesktopModeForTab(activeTab?.id ?: 0, context)
-                }
-            )
-        }
-        DropdownMenuItem(
-            text = { Text("Translate Page (Google)") },
-            leadingIcon = { Icon(Icons.Default.Translate, "Translate") },
-            onClick = {
-                onDismissRequest()
-                val currentUrl = activeTab?.url ?: ""
-                if (currentUrl.isNotEmpty() && currentUrl != "dineinstyle.com") {
-                    val translateUrl = "https://translate.google.com/translate?sl=auto&tl=en&u=" + android.net.Uri.encode(currentUrl)
-                    viewModel.loadUrl(translateUrl)
-                } else {
-                    android.widget.Toast.makeText(context, "Open a website first to translate.", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("Full Screen Reading") },
-            leadingIcon = { Icon(Icons.Default.Fullscreen, "Full Screen") },
-            onClick = {
-                onDismissRequest()
-                viewModel.setFullScreenReading(true)
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("Clear Tabs & Cache") },
-            leadingIcon = { Icon(Icons.Default.DeleteForever, "Clear") },
-            onClick = {
-                onDismissRequest()
-                viewModel.oneTapClearEverything(context)
-            }
-        )
-        if (menuAddToHome) {
-            DropdownMenuItem(
-                text = { Text("Add to Home") },
-                leadingIcon = { Icon(Icons.Default.Add, "Add to Home") },
-                onClick = { onDismissRequest() }
-            )
-        }
-        if (menuDeveloperTools) {
-            DropdownMenuItem(
-                text = { Text("Developer Tools") },
-                leadingIcon = { Icon(Icons.Default.Refresh, "Developer") },
-                onClick = { onDismissRequest() }
-            )
-        }
 
-        HorizontalDivider()
-        if (aiSmartSummarizerEnabled) {
-            DropdownMenuItem(
-                text = { Text("AI Page Summarizer", color = Color(0xFF818CF8), fontWeight = FontWeight.Bold) },
-                leadingIcon = { Icon(Icons.Default.Book, "AI Summarize", tint = Color(0xFF818CF8)) },
-                onClick = {
-                    onDismissRequest()
-                    onAiSummarizeClick()
-                }
-            )
-            HorizontalDivider()
-        }
+                Spacer(modifier = Modifier.height(4.dp))
 
-        DropdownMenuItem(
-            text = { Text("Settings") },
-            leadingIcon = { Icon(Icons.Default.Settings, "Settings") },
-            onClick = {
-                onDismissRequest()
-                onSettingsClick()
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("Start Page") },
-            leadingIcon = { Icon(Icons.Default.Home, "Start Page Home") },
-            onClick = {
-                onDismissRequest()
-                onHomeClick()
-            }
-        )
+                // BOTTOM TOOLBAR OF 5 QUICK ACTION ICONS
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val webView = activeTab?.id?.let { WebViewPool.getOrCreateWebView(context, it, viewModel) }
+                    val canGoForward = webView?.canGoForward() ?: false
+                    ToolbarIconItem(
+                        icon = Icons.Default.ArrowForward,
+                        tint = if (canGoForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        animType = IconAnimType.BOUNCE,
+                        onClick = {
+                            if (canGoForward) {
+                                webView?.goForward()
+                                onDismissRequest()
+                            } else {
+                                Toast.makeText(context, "No forward history available", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+
+                    ToolbarIconItem(
+                        icon = Icons.Default.Bookmark,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        animType = IconAnimType.PULSE,
+                        onClick = {
+                            activeTab?.let {
+                                viewModel.addBookmark(it.title, it.url)
+                                Toast.makeText(context, "Saved to Bookmarks!", Toast.LENGTH_SHORT).show()
+                            }
+                            onDismissRequest()
+                        }
+                    )
+
+                    ToolbarIconItem(
+                        icon = Icons.Default.PowerSettingsNew,
+                        tint = Color(0xFFEF4444),
+                        animType = IconAnimType.SPIN,
+                        onClick = {
+                            viewModel.oneTapClearEverything(context)
+                            onDismissRequest()
+                        }
+                    )
+
+                    ToolbarIconItem(
+                        icon = Icons.Default.Extension,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        animType = IconAnimType.WIGGLE,
+                        onClick = {
+                            onDismissRequest()
+                            onCookieEditorClick()
+                        }
+                    )
+
+                    ToolbarIconItem(
+                        icon = Icons.Default.Refresh,
+                        tint = MaterialTheme.colorScheme.primary,
+                        animType = IconAnimType.SPIN,
+                        onClick = {
+                            webView?.reload()
+                            onDismissRequest()
+                        }
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+fun PrivacyGuardSheet(
+    viewModel: BrowserViewModel,
+    activeTab: BrowserTab?,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val alwaysUseHttps by viewModel.alwaysUseHttps.collectAsStateWithLifecycle()
+    val removeFingerprint by viewModel.removeFingerprint.collectAsStateWithLifecycle()
+    val scriptControlEnabled by viewModel.scriptControlEnabled.collectAsStateWithLifecycle()
+    val cookieManagementMode by viewModel.cookieManagementMode.collectAsStateWithLifecycle()
+    val stopAppRedirects by viewModel.stopAppRedirects.collectAsStateWithLifecycle()
+    val hideDistractingItems by viewModel.hideDistractingItems.collectAsStateWithLifecycle()
+    val adBlockerOn by viewModel.adBlockerOn.collectAsStateWithLifecycle()
+    val blockedAdsMap by viewModel.blockedAdsMap.collectAsStateWithLifecycle()
+
+    val currentTabId = activeTab?.id ?: 0L
+    val blockedOnThisSite = blockedAdsMap[currentTabId] ?: 0
+
+    val displayDomain = remember(activeTab?.url) {
+        val url = activeTab?.url ?: ""
+        try {
+            var d = url
+            if (d.startsWith("http://")) d = d.substring(7)
+            else if (d.startsWith("https://")) d = d.substring(8)
+            val slashIdx = d.indexOf('/')
+            val domain = if (slashIdx != -1) d.substring(0, slashIdx) else d
+            if (domain.isBlank()) "START PAGE" else domain.uppercase()
+        } catch (e: Exception) {
+            "START PAGE"
+        }
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.85f)
+            .shadow(24.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF0F172A)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.2f))
+                    .align(Alignment.CenterHorizontally)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "Back",
+                        tint = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column {
+                    Text(
+                        text = "PRIVACY GUARD",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        letterSpacing = 0.5.sp
+                    )
+                    Text(
+                        text = displayDomain,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.6f),
+                        letterSpacing = 0.3.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color(0xFF10B981).copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column {
+                            Text(
+                                text = "Quetta has blocked $blockedOnThisSite ads and trackers for you so far.",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Ads & Trackers Blocker",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Ads and pop-ups blocked & Trackers prevented from profiling you.",
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.6f)
+                                )
+                            }
+
+                            Switch(
+                                checked = adBlockerOn,
+                                onCheckedChange = { viewModel.toggleAdBlocker() },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFF10B981),
+                                    checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                        TextButton(
+                            onClick = {
+                                Toast.makeText(context, "Site reported successfully! Thank you.", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.align(Alignment.Start),
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF38BDF8))
+                        ) {
+                            Text(
+                                text = "Report Site with ads",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "PRIVACY CONTROL",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.5f),
+                    letterSpacing = 1.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E293B)
+                    ),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        PrivacyControlRow(
+                            title = "Hide Distracting Items",
+                            icon = Icons.Default.Block,
+                            checked = hideDistractingItems,
+                            onCheckedChange = { viewModel.setHideDistractingItems(it) }
+                        )
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                        PrivacyControlRow(
+                            title = "Always Use HTTPS",
+                            icon = Icons.Default.Lock,
+                            checked = alwaysUseHttps,
+                            onCheckedChange = { viewModel.setAlwaysUseHttps(it) }
+                        )
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                        PrivacyControlRow(
+                            title = "Remove Fingerprint",
+                            icon = Icons.Default.Fingerprint,
+                            checked = removeFingerprint,
+                            onCheckedChange = { viewModel.setRemoveFingerprint(it) }
+                        )
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                        PrivacyControlRow(
+                            title = "Script Control",
+                            icon = Icons.Default.Code,
+                            checked = scriptControlEnabled,
+                            onCheckedChange = { viewModel.setScriptControlEnabled(it) }
+                        )
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                        PrivacyControlRow(
+                            title = "Cookie Management",
+                            icon = Icons.Default.Cookie,
+                            checked = cookieManagementMode == "block_third_party",
+                            onCheckedChange = {
+                                viewModel.setCookieManagementMode(if (it) "block_third_party" else "allow_all")
+                            }
+                        )
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                        PrivacyControlRow(
+                            title = "Stop App Redirects",
+                            icon = Icons.Default.Smartphone,
+                            checked = stopAppRedirects,
+                            onCheckedChange = { viewModel.setStopAppRedirects(it) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun PrivacyControlRow(
+    title: String,
+    icon: ImageVector,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.7f),
+            modifier = Modifier.size(20.dp)
+        )
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Text(
+            text = title,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White,
+            modifier = Modifier.weight(1f)
+        )
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFF38BDF8),
+                checkedTrackColor = Color(0xFF38BDF8).copy(alpha = 0.4f)
+            )
+        )
+    }
+}
+
+enum class IconAnimType {
+    SPIN, BOUNCE, WIGGLE, PULSE
+}
+
+@Composable
+fun MicroAnimatedIcon(
+    imageVector: ImageVector,
+    contentDescription: String?,
+    tint: Color,
+    modifier: Modifier = Modifier,
+    animType: IconAnimType = IconAnimType.BOUNCE,
+    triggerSignal: Any? = null
+) {
+    var isTriggered by remember { mutableStateOf(false) }
+
+    LaunchedEffect(triggerSignal) {
+        if (triggerSignal != null) {
+            isTriggered = true
+        }
+    }
+
+    LaunchedEffect(isTriggered) {
+        if (isTriggered) {
+            delay(450)
+            isTriggered = false
+        }
+    }
+
+    val rotation by animateFloatAsState(
+        targetValue = if (isTriggered) {
+            when (animType) {
+                IconAnimType.SPIN -> 360f
+                IconAnimType.WIGGLE -> 15f
+                else -> 0f
+            }
+        } else {
+            when (animType) {
+                IconAnimType.WIGGLE -> -15f
+                else -> 0f
+            }
+        },
+        animationSpec = if (isTriggered) {
+            spring(dampingRatio = 0.5f, stiffness = 150f)
+        } else {
+            spring(dampingRatio = 0.6f, stiffness = 100f)
+        },
+        label = "rotation"
+    )
+
+    val scale by animateFloatAsState(
+        targetValue = if (isTriggered) {
+            when (animType) {
+                IconAnimType.BOUNCE -> 1.3f
+                IconAnimType.PULSE -> 1.25f
+                else -> 1.15f
+            }
+        } else 1.0f,
+        animationSpec = spring(dampingRatio = 0.4f, stiffness = 250f),
+        label = "scale"
+    )
+
+    val translationY by animateFloatAsState(
+        targetValue = if (isTriggered && animType == IconAnimType.BOUNCE) -6f else 0f,
+        animationSpec = spring(dampingRatio = 0.4f, stiffness = 200f),
+        label = "translationY"
+    )
+
+    Icon(
+        imageVector = imageVector,
+        contentDescription = contentDescription,
+        tint = tint,
+        modifier = modifier
+            .graphicsLayer {
+                this.scaleX = scale
+                this.scaleY = scale
+                this.rotationZ = rotation
+                this.translationY = translationY
+            }
+    )
+}
+
+@Composable
+fun QuickGridItem(
+    title: String,
+    icon: ImageVector,
+    iconColor: Color,
+    animType: IconAnimType,
+    onClick: () -> Unit
+) {
+    var clickCount by remember { mutableStateOf(0) }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .bouncyClickable {
+                clickCount++
+                onClick()
+            }
+            .padding(2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            MicroAnimatedIcon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = iconColor,
+                modifier = Modifier.size(20.dp),
+                animType = animType,
+                triggerSignal = clickCount
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium, fontSize = 10.sp),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+        )
+    }
+}
+
+@Composable
+fun PageActionItem(
+    title: String,
+    icon: ImageVector,
+    animType: IconAnimType,
+    rightContent: @Composable (() -> Unit)? = null,
+    onClick: () -> Unit
+) {
+    var clickCount by remember { mutableStateOf(0) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .bouncyClickable {
+                clickCount++
+                onClick()
+            }
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MicroAnimatedIcon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            modifier = Modifier.size(20.dp),
+            animType = animType,
+            triggerSignal = clickCount
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        if (rightContent != null) {
+            rightContent()
+        } else {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun ToolbarIconItem(
+    icon: ImageVector,
+    tint: Color,
+    animType: IconAnimType,
+    onClick: () -> Unit
+) {
+    var clickCount by remember { mutableStateOf(0) }
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .bouncyClickable {
+                clickCount++
+                onClick()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        MicroAnimatedIcon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(24.dp),
+            animType = animType,
+            triggerSignal = clickCount
+        )
     }
 }
 
