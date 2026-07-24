@@ -85,4 +85,56 @@ data class DownloadEntry(
     val size: String = "Unknown size"
 )
 
+@Entity(tableName = "vault_items")
+data class VaultItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val title: String,
+    val url: String,
+    val pageUrl: String,
+    val pageTitle: String,
+    val type: String, // "image", "video", "link", "note"
+    val collectionName: String, // e.g. "Sports", "Food", "Goals", "Events", "Shopping", "Personal"
+    val timestamp: Long = System.currentTimeMillis(),
+    val notes: String? = null,
+    val extraData: String? = null // e.g. "$29.99"
+)
+
+@Entity(tableName = "category_lists")
+data class CategoryListEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val iconName: String = "Movie",
+    val colorHex: String = "#3B82F6",
+    val type: String = "General", // "Movies", "Books", "Music", "Video Games", "Places", "Web Links"
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "list_items")
+data class ListItemEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val listId: Long,
+    val title: String,
+    val subtitle: String? = null,
+    val description: String? = null,
+    val imageUrl: String? = null,
+    val rating: Float = 0f, // 1 to 5 stars
+    val notes: String? = null,
+    val isCompleted: Boolean = false,
+    val releaseDate: String? = null,
+    val webUrl: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "telegram_media")
+data class TelegramMedia(
+    @PrimaryKey val fileId: String,
+    val messageId: Long = 0,
+    val mediaType: String = "photo", // "photo", "video", "text", "file"
+    val fileUrl: String? = null,
+    val caption: String? = null,
+    val postedAt: Long = System.currentTimeMillis()
+)
+
+
+
 

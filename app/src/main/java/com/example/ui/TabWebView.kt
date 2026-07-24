@@ -58,6 +58,10 @@ class MediaCaptureInterface(
 object WebViewPool {
     private val webViews = mutableMapOf<Long, WebView>()
 
+    fun getWebView(tabId: Long): WebView? {
+        return webViews[tabId]
+    }
+
     fun getOrCreateWebView(context: Context, tabId: Long, viewModel: BrowserViewModel): WebView {
         return webViews.getOrPut(tabId) {
             WebView(context).apply {
@@ -119,7 +123,13 @@ object WebViewPool {
                     val hitTest = hitTestResult
                     val type = hitTest.type
                     val extra = hitTest.extra
-                    if (type == WebView.HitTestResult.SRC_ANCHOR_TYPE || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+                    if (type == WebView.HitTestResult.IMAGE_TYPE || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+                        if (extra != null) {
+                            viewModel.setLongPressedImage(extra, title = title ?: "Image", pageUrl = url ?: "")
+                            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                        }
+                        true
+                    } else if (type == WebView.HitTestResult.SRC_ANCHOR_TYPE) {
                         if (extra != null) {
                             viewModel.showLinkContextMenu(extra, "")
                         }
@@ -1095,6 +1105,19 @@ object WebViewPool {
                     })();
                 """.trimIndent()
                 view?.evaluateJavascript(script, null)
+
+                if (url != null && view != null) {
+                    val domain = try {
+                        val host = android.net.Uri.parse(url).host ?: ""
+                        if (host.startsWith("www.")) host.substring(4) else host
+                    } catch (e: Exception) {
+                        ""
+                    }
+                    if (domain.isNotEmpty()) {
+                        val mode = com.example.ui.BrowserFeaturesManager.siteDarkPref[domain] ?: "Auto"
+                        com.example.ui.BrowserFeaturesManager.injectSmartDarkMode(view, mode)
+                    }
+                }
             }
         }
 
@@ -1132,6 +1155,68 @@ object WebViewPool {
                     }
                 }
                 return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+            }
+
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                if (request == null) return
+                val host = webView.url?.let {
+                    try {
+                        java.net.URI(it).host
+                    } catch (e: Exception) {
+                        null
+                    }
+                } ?: "website.com"
+                val cleanDomain = if (host != null && host.startsWith("www.")) host.substring(4) else (host ?: "website.com")
+                val resources = request.resources
+                val context = webView.context
+
+                // Map Android resources to our Permission Types
+                val mappedTypes = mutableListOf<String>()
+                resources.forEach { res ->
+                    when (res) {
+                        android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE -> mappedTypes.add("Camera")
+                        android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE -> mappedTypes.add("Microphone")
+                    }
+                }
+
+                if (mappedTypes.isEmpty()) {
+                    request.grant(resources)
+                    return
+                }
+
+                var allAllowed = true
+                mappedTypes.forEach { type ->
+                    val state = com.example.ui.BrowserFeaturesManager.getPermissionState(cleanDomain, type)
+                    com.example.ui.BrowserFeaturesManager.logPermissionAccess(context, cleanDomain, type, state == "Allow")
+                    if (state != "Allow") {
+                        allAllowed = false
+                    }
+                }
+
+                if (allAllowed) {
+                    request.grant(resources)
+                } else {
+                    request.deny()
+                }
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: android.webkit.GeolocationPermissions.Callback?
+            ) {
+                if (origin == null || callback == null) return
+                val host = android.net.Uri.parse(origin).host ?: "website.com"
+                val cleanDomain = if (host.startsWith("www.")) host.substring(4) else host
+                val context = webView.context
+
+                val state = com.example.ui.BrowserFeaturesManager.getPermissionState(cleanDomain, "Location")
+                com.example.ui.BrowserFeaturesManager.logPermissionAccess(context, cleanDomain, "Location", state == "Allow")
+
+                if (state == "Allow") {
+                    callback.invoke(origin, true, false)
+                } else {
+                    callback.invoke(origin, false, false)
+                }
             }
         }
 
@@ -1245,6 +1330,21 @@ fun TabWebView(
         }
     }
 
+    // Capture tab visual preview screenshots dynamically and periodically
+    LaunchedEffect(tabId, progress) {
+        if (progress == 100) {
+            kotlinx.coroutines.delay(1200)
+            TabThumbnailManager.captureThumbnail(context, tabId, webView)
+            
+            while (true) {
+                kotlinx.coroutines.delay(2500)
+                if (viewModel.activeTabId.value == tabId && !viewModel.isTabSwitcherVisible.value) {
+                    TabThumbnailManager.captureThumbnail(context, tabId, webView)
+                }
+            }
+        }
+    }
+
     // Find on Page logic integrated with Android WebView native text finding
     val findOnPageActive by viewModel.findOnPageActive.collectAsState()
     val findOnPageQuery by viewModel.findOnPageQuery.collectAsState()
@@ -1273,8 +1373,24 @@ fun TabWebView(
         }
     }
 
-    androidx.compose.runtime.key(tabId) {
-        AndroidView(
+    val isSplit = com.example.ui.BrowserFeaturesManager.splitTabStates[tabId]?.isSplit == true
+    val isReaderActive = com.example.ui.BrowserFeaturesManager.readerActiveForTab[tabId] == true
+
+    if (isReaderActive) {
+        com.example.ui.SmartReaderView(
+            tabId = tabId,
+            viewModel = viewModel,
+            modifier = modifier
+        )
+    } else if (isSplit) {
+        com.example.ui.SplitScreenTabWebView(
+            tabId = tabId,
+            viewModel = viewModel,
+            modifier = modifier
+        )
+    } else {
+        androidx.compose.runtime.key(tabId) {
+            AndroidView(
             factory = { ctx ->
                 androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
                     layoutParams = android.view.ViewGroup.LayoutParams(
@@ -1469,5 +1585,6 @@ fun TabWebView(
             view.evaluateJavascript(realityFiltersScript, null)
         }
     )
+}
 }
 }

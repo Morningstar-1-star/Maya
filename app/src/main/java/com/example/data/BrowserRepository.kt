@@ -90,4 +90,47 @@ class BrowserRepository(private val browserDao: BrowserDao) {
     suspend fun deleteDownloadById(id: Long) = browserDao.deleteDownloadById(id)
 
     suspend fun clearAllDownloads() = browserDao.clearAllDownloads()
+
+    // --- Vault Items ---
+    val allVaultItems: Flow<List<VaultItem>> = browserDao.getAllVaultItems()
+
+    suspend fun insertVaultItem(item: VaultItem): Long = browserDao.insertVaultItem(item)
+
+    suspend fun updateVaultItem(item: VaultItem) = browserDao.updateVaultItem(item)
+
+    suspend fun deleteVaultItemById(id: Long) = browserDao.deleteVaultItemById(id)
+
+    suspend fun clearAllVaultItems() = browserDao.clearAllVaultItems()
+
+    // --- Category Lists (Listy Engine) ---
+    val allCategoryLists: Flow<List<CategoryListEntity>> = browserDao.getAllCategoryLists()
+
+    suspend fun insertCategoryList(list: CategoryListEntity): Long = browserDao.insertCategoryList(list)
+
+    suspend fun deleteCategoryListById(id: Long) {
+        browserDao.deleteListItemsByListId(id)
+        browserDao.deleteCategoryListById(id)
+    }
+
+    // --- List Items ---
+    val allListItems: Flow<List<ListItemEntity>> = browserDao.getAllListItems()
+
+    fun getListItemsByListId(listId: Long): Flow<List<ListItemEntity>> = browserDao.getListItemsByListId(listId)
+
+    suspend fun insertListItem(item: ListItemEntity): Long = browserDao.insertListItem(item)
+
+    suspend fun updateListItem(item: ListItemEntity) = browserDao.updateListItem(item)
+
+    suspend fun deleteListItemById(id: Long) = browserDao.deleteListItemById(id)
+
+    // --- Telegram Media ---
+    val allTelegramMedia: Flow<List<TelegramMedia>> = browserDao.getAllTelegramMedia()
+
+    suspend fun insertTelegramMediaList(items: List<TelegramMedia>) = browserDao.insertTelegramMediaList(items)
+
+    suspend fun insertTelegramMedia(item: TelegramMedia) = browserDao.insertTelegramMedia(item)
+
+    suspend fun deleteTelegramMediaByFileId(fileId: String) = browserDao.deleteTelegramMediaByFileId(fileId)
+
+    suspend fun clearAllTelegramMedia() = browserDao.clearAllTelegramMedia()
 }

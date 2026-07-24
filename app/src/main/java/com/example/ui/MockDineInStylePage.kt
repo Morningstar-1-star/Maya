@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import com.example.data.HomepageShortcut
+import androidx.compose.ui.window.Dialog
 import com.example.data.CapturedMedia
 import kotlinx.coroutines.delay
 
@@ -56,7 +57,10 @@ fun MockDineInStylePage(
     chromeThemeNtpBgPath: String? = null,
     playlistVideos: List<CapturedMedia> = emptyList(),
     onPlayVideo: (CapturedMedia) -> Unit = {},
-    onDeleteVideo: (Long) -> Unit = {}
+    onDeleteVideo: (Long) -> Unit = {},
+    allVaultItems: List<com.example.data.VaultItem> = emptyList(),
+    onSeeAllVaultClick: () -> Unit = {},
+    onDeleteVaultItem: (Long) -> Unit = {}
 ) {
     val effectiveTextColor = if (chromeThemeActive) {
         Color(chromeThemeNtpTextColor)
@@ -80,6 +84,7 @@ fun MockDineInStylePage(
     var shortcutToEdit by remember { mutableStateOf<HomepageShortcut?>(null) }
     var showFavoritesSection by remember { mutableStateOf(true) }
     var showICloudTabsSection by remember { mutableStateOf(false) }
+    var activeFolderShortcut by remember { mutableStateOf<HomepageShortcut?>(null) }
     
     // Manage local dynamic list of iCloud tab cards
     var iCloudTabsList by remember {
@@ -158,6 +163,11 @@ fun MockDineInStylePage(
             contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp)
         ) {
             
+            // --- HEADER SPACING ---
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            
             // --- FAVORITES SECTION ---
             if (showFavoritesSection) {
                 item {
@@ -195,7 +205,14 @@ fun MockDineInStylePage(
                         FavoritesGrid(
                             shortcuts = shortcuts,
                             wallpaperActive = wallpaperUrl != null,
-                            onShortcutClicked = onShortcutClicked,
+                            onShortcutClicked = { clickedUrl ->
+                                val corresponding = shortcuts.find { it.url == clickedUrl }
+                                if (corresponding != null && corresponding.title.lowercase() == "developer tools") {
+                                    activeFolderShortcut = corresponding
+                                } else {
+                                    onShortcutClicked(clickedUrl)
+                                }
+                            },
                             onDeleteShortcut = onDeleteShortcut,
                             onEditShortcut = { shortcut ->
                                 shortcutToEdit = shortcut
@@ -450,6 +467,128 @@ fun MockDineInStylePage(
                 }
             }
 
+            // --- RECENTLY ADDED VAULT CONTENT SECTION ---
+            if (allVaultItems.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Recently added Content",
+                                color = effectiveTextColor,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            
+                            Text(
+                                text = "See all",
+                                color = Color(0xFF007AFF),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onSeeAllVaultClick() }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(allVaultItems.take(5)) { vaultItem ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(160.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(if (wallpaperUrl == null) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f))
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (wallpaperUrl == null) MaterialTheme.colorScheme.outline.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(16.dp)
+                                        )
+                                        .clickable { onSeeAllVaultClick() }
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(110.dp)
+                                        ) {
+                                            Image(
+                                                painter = rememberAsyncImagePainter(model = vaultItem.url),
+                                                contentDescription = vaultItem.title,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                            
+                                            // Badge for category
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopStart)
+                                                    .padding(8.dp)
+                                                    .background(
+                                                        color = when (vaultItem.collectionName.lowercase()) {
+                                                            "sports" -> Color(0xFFEF4444).copy(alpha = 0.85f)
+                                                            "food" -> Color(0xFF10B981).copy(alpha = 0.85f)
+                                                            "goals" -> Color(0xFF8B5CF6).copy(alpha = 0.85f)
+                                                            "events" -> Color(0xFFF59E0B).copy(alpha = 0.85f)
+                                                            "shopping" -> Color(0xFF3B82F6).copy(alpha = 0.85f)
+                                                            else -> Color(0xFF6B7280).copy(alpha = 0.85f)
+                                                        },
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = vaultItem.collectionName,
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(10.dp)
+                                        ) {
+                                            Text(
+                                                text = vaultItem.title,
+                                                color = effectiveTextColor,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            
+                                            Text(
+                                                text = vaultItem.extraData ?: "Saved",
+                                                color = effectiveTextColor.copy(alpha = 0.6f),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- BOTTOM EDIT / CUSTOMIZATION BUTTON ---
             item {
                 Box(
@@ -480,6 +619,150 @@ fun MockDineInStylePage(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                }
+            }
+        }
+
+        // --- CUSTOM SHORTCUT GROUP / FOLDER DIALOG ---
+        if (activeFolderShortcut != null) {
+            Dialog(onDismissRequest = { activeFolderShortcut = null }) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth(0.95f)
+                        .clip(RoundedCornerShape(28.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(28.dp)),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (wallpaperUrl != null) Color(0xFF1E293B).copy(alpha = 0.95f) else MaterialTheme.colorScheme.surface
+                    ),
+                    elevation = CardDefaults.cardElevation(24.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = activeFolderShortcut!!.title,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = effectiveTextColor,
+                            modifier = Modifier.padding(bottom = 24.dp)
+                        )
+                        
+                        // Row 1
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            // Instagram
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clickable {
+                                        onShortcutClicked("https://www.instagram.com")
+                                        activeFolderShortcut = null
+                                    }
+                                    .padding(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Brush.linearGradient(listOf(Color(0xFF818CF8), Color(0xFFEC4899), Color(0xFFF59E0B)))),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("I", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Instagram", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
+                            }
+                            
+                            // Telegram
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clickable {
+                                        onShortcutClicked("https://telegram.org")
+                                        activeFolderShortcut = null
+                                    }
+                                    .padding(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFF229ED9)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Send, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Telegram", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Row 2
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            // Vimeo
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clickable {
+                                        onShortcutClicked("https://vimeo.com")
+                                        activeFolderShortcut = null
+                                    }
+                                    .padding(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFF1AB7EA)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("V", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Vimeo", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
+                            }
+                            
+                            // Amazon
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clickable {
+                                        onShortcutClicked("https://www.amazon.com")
+                                        activeFolderShortcut = null
+                                    }
+                                    .padding(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFFFF9900)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("a", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Serif)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Amazon", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        TextButton(
+                            onClick = { activeFolderShortcut = null },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFC23E50))
+                        ) {
+                            Text("Close Group", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
                     }
                 }
             }
@@ -727,6 +1010,147 @@ fun FavoriteTileItem(
             } else {
                 // Generate visual styles identical to Apple's Safari favorites
                 when (shortcut.title.lowercase()) {
+                    "duckduckgo" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFDE5833)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "D",
+                                color = Color.White,
+                                fontSize = 34.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+                    }
+                    "icloud" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = "iCloud",
+                                tint = Color(0xFF007AFF),
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                    }
+                    "microsoft" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFFF25022)))
+                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFF7FBA00)))
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFF00A4EF)))
+                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFFFFB900)))
+                                }
+                            }
+                        }
+                    }
+                    "microsoft 365" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Hexagon,
+                                contentDescription = "Microsoft 365",
+                                tint = Color(0xFFE33E2B),
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                    }
+                    "telegram" -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF229ED9)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Telegram",
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                    "developer tools" -> {
+                        // 2x2 grid of 4 mini-icons as seen in folder mockup
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Brush.linearGradient(listOf(Color(0xFF818CF8), Color(0xFFEC4899), Color(0xFFF59E0B)))),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("I", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF229ED9)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("T", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF1AB7EA)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("V", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFFFF9900)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("A", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
                     "amazon" -> {
                         Box(
                             modifier = Modifier

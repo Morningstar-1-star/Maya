@@ -363,6 +363,11 @@ fun BrowserScreen(
     val hideBottomToolbar by viewModel.hideBottomToolbar.collectAsStateWithLifecycle()
 
     val menuShowReader by viewModel.menuShowReader.collectAsStateWithLifecycle()
+
+    val isPermissionDashboardVisible by viewModel.isPermissionDashboardVisible.collectAsStateWithLifecycle()
+    val isSiteDashboardVisible by viewModel.isSiteDashboardVisible.collectAsStateWithLifecycle()
+    val isAutoRefreshRuleVisible by viewModel.isAutoRefreshRuleVisible.collectAsStateWithLifecycle()
+    val activeDuplicateRequest = com.example.ui.BrowserFeaturesManager.activeDuplicateRequest.value
     val menuPageZoom by viewModel.menuPageZoom.collectAsStateWithLifecycle()
     val menuFindOnPage by viewModel.menuFindOnPage.collectAsStateWithLifecycle()
     val menuRequestDesktop by viewModel.menuRequestDesktop.collectAsStateWithLifecycle()
@@ -419,6 +424,11 @@ fun BrowserScreen(
     val allHistory by viewModel.allHistory.collectAsStateWithLifecycle()
     val allBookmarks by viewModel.allBookmarks.collectAsStateWithLifecycle()
     val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
+    val allVaultItems by viewModel.allVaultItems.collectAsStateWithLifecycle()
+    val activeLongPressedImage by viewModel.activeLongPressedImage.collectAsStateWithLifecycle()
+    val longPressedImageTitle by viewModel.longPressedImageTitle.collectAsStateWithLifecycle()
+    val longPressedImagePageUrl by viewModel.longPressedImagePageUrl.collectAsStateWithLifecycle()
+    val isVaultCollectionScreenVisible by viewModel.isVaultCollectionScreenVisible.collectAsStateWithLifecycle()
 
     val updatedBookmarks = remember(allBookmarks) { allBookmarks.filter { it.hasUpdateAlert } }
     val updateCount = updatedBookmarks.size
@@ -784,6 +794,13 @@ fun BrowserScreen(
                                 },
                                 onDeleteVideo = { id ->
                                     viewModel.deleteMedia(id)
+                                },
+                                allVaultItems = allVaultItems,
+                                onSeeAllVaultClick = {
+                                    viewModel.setVaultCollectionScreenVisible(true)
+                                },
+                                onDeleteVaultItem = { id ->
+                                    viewModel.deleteVaultItem(id)
                                 }
                             )
                         } else {
@@ -1205,6 +1222,40 @@ fun BrowserScreen(
                         wv.reload()
                     }
                 }
+            )
+        }
+
+        // --- Browser Features Dialogs and Sheets ---
+        if (isPermissionDashboardVisible) {
+            SitePermissionDashboardSheet(
+                viewModel = viewModel,
+                onClose = { viewModel.setPermissionDashboardVisible(false) }
+            )
+        }
+
+        if (isSiteDashboardVisible) {
+            SiteDashboardAnalyticsSheet(
+                viewModel = viewModel,
+                onClose = { viewModel.setSiteDashboardVisible(false) }
+            )
+        }
+
+        if (isAutoRefreshRuleVisible) {
+            val activeId = activeTabId
+            if (activeId != null) {
+                SmartAutoRefreshDialog(
+                    tabId = activeId,
+                    viewModel = viewModel,
+                    onDismiss = { viewModel.setAutoRefreshRuleVisible(false) }
+                )
+            }
+        }
+
+        activeDuplicateRequest?.let { req ->
+            DuplicateTabAlertDialog(
+                viewModel = viewModel,
+                onRequest = req,
+                onDismiss = { com.example.ui.BrowserFeaturesManager.activeDuplicateRequest.value = null }
             )
         }
 
@@ -2207,6 +2258,25 @@ fun BrowserScreen(
                 viewModel = viewModel
             )
         }
+
+        // --- Vault / Collections Feature Overlays ---
+        if (activeLongPressedImage != null) {
+            com.example.ui.VaultSaveTray(
+                imageUrl = activeLongPressedImage!!,
+                title = longPressedImageTitle ?: "Saved Image",
+                pageUrl = longPressedImagePageUrl ?: "",
+                viewModel = viewModel,
+                onDismiss = { viewModel.setLongPressedImage(null) }
+            )
+        }
+
+        if (isVaultCollectionScreenVisible) {
+            com.example.ui.VaultManagerScreen(
+                allVaultItems = allVaultItems,
+                viewModel = viewModel,
+                onClose = { viewModel.setVaultCollectionScreenVisible(false) }
+            )
+        }
     }
 }
 
@@ -3188,6 +3258,39 @@ fun BrowserOptionsMenu(
                                 }
                             )
 
+                            // Site Permissions
+                            PageActionItem(
+                                title = "Site Permissions",
+                                icon = Icons.Default.Lock,
+                                animType = IconAnimType.WIGGLE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setPermissionDashboardVisible(true)
+                                }
+                            )
+
+                            // Website Control Center
+                            PageActionItem(
+                                title = "Website Control Center",
+                                icon = Icons.Default.Assessment,
+                                animType = IconAnimType.BOUNCE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setSiteDashboardVisible(true)
+                                }
+                            )
+
+                            // Smart Auto Refresh
+                            PageActionItem(
+                                title = "Smart Auto Refresh",
+                                icon = Icons.Default.Autorenew,
+                                animType = IconAnimType.SPIN,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setAutoRefreshRuleVisible(true)
+                                }
+                            )
+
                             // 7. Unblock Copy
                             PageActionItem(
                                 title = if (copyUnblockActive) "Unblock Copy: ON" else "Unblock Copy: OFF",
@@ -3322,6 +3425,15 @@ fun BrowserOptionsMenu(
     }
 }
 
+enum class PrivacyGuardScreen {
+    MAIN,
+    ADS_TRACKERS_BLOCKER,
+    CONTENT_FILTERS,
+    ADD_CUSTOM_FILTER_URL,
+    CUSTOM_FILTERS_LIST,
+    MANAGE_SITE_OPTIONS
+}
+
 @Composable
 fun PrivacyGuardSheet(
     viewModel: BrowserViewModel,
@@ -3338,6 +3450,8 @@ fun PrivacyGuardSheet(
     val hideDistractingItems by viewModel.hideDistractingItems.collectAsStateWithLifecycle()
     val adBlockerOn by viewModel.adBlockerOn.collectAsStateWithLifecycle()
     val blockedAdsMap by viewModel.blockedAdsMap.collectAsStateWithLifecycle()
+    val customFilterRules by viewModel.customFilterRules.collectAsStateWithLifecycle()
+    val adFilters by viewModel.adFilters.collectAsStateWithLifecycle()
 
     val currentTabId = activeTab?.id ?: 0L
     val blockedOnThisSite = blockedAdsMap[currentTabId] ?: 0
@@ -3355,6 +3469,8 @@ fun PrivacyGuardSheet(
             "START PAGE"
         }
     }
+
+    var currentScreen by remember { mutableStateOf(PrivacyGuardScreen.MAIN) }
 
     Card(
         modifier = modifier
@@ -3382,12 +3498,22 @@ fun PrivacyGuardSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // --- Dynamic Header ---
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = onClose,
+                    onClick = {
+                        when (currentScreen) {
+                            PrivacyGuardScreen.MAIN -> onClose()
+                            PrivacyGuardScreen.ADS_TRACKERS_BLOCKER -> currentScreen = PrivacyGuardScreen.MAIN
+                            PrivacyGuardScreen.CONTENT_FILTERS -> currentScreen = PrivacyGuardScreen.ADS_TRACKERS_BLOCKER
+                            PrivacyGuardScreen.ADD_CUSTOM_FILTER_URL -> currentScreen = PrivacyGuardScreen.CONTENT_FILTERS
+                            PrivacyGuardScreen.CUSTOM_FILTERS_LIST -> currentScreen = PrivacyGuardScreen.CONTENT_FILTERS
+                            PrivacyGuardScreen.MANAGE_SITE_OPTIONS -> currentScreen = PrivacyGuardScreen.ADS_TRACKERS_BLOCKER
+                        }
+                    },
                     modifier = Modifier
                         .size(36.dp)
                         .background(Color.White.copy(alpha = 0.08f), CircleShape)
@@ -3401,211 +3527,930 @@ fun PrivacyGuardSheet(
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
+                    val headerTitle = when (currentScreen) {
+                        PrivacyGuardScreen.MAIN -> "PRIVACY GUARD"
+                        PrivacyGuardScreen.ADS_TRACKERS_BLOCKER -> "Ads & Trackers Blocker"
+                        PrivacyGuardScreen.CONTENT_FILTERS -> "Content Filters"
+                        PrivacyGuardScreen.ADD_CUSTOM_FILTER_URL -> "Custom filter lists"
+                        PrivacyGuardScreen.CUSTOM_FILTERS_LIST -> "Custom Filters"
+                        PrivacyGuardScreen.MANAGE_SITE_OPTIONS -> "Manage Sites"
+                    }
+                    val headerSubtitle = when (currentScreen) {
+                        PrivacyGuardScreen.MAIN -> displayDomain
+                        PrivacyGuardScreen.ADS_TRACKERS_BLOCKER -> if (adBlockerOn) "ADS & TRACKERS BLOCKER ON" else "ADS & TRACKERS BLOCKER OFF"
+                        PrivacyGuardScreen.CONTENT_FILTERS -> "Manage filters and rules"
+                        PrivacyGuardScreen.ADD_CUSTOM_FILTER_URL -> "Add subscription list"
+                        PrivacyGuardScreen.CUSTOM_FILTERS_LIST -> "Content filter syntax rules"
+                        PrivacyGuardScreen.MANAGE_SITE_OPTIONS -> "Saved custom site preferences"
+                    }
                     Text(
-                        text = "PRIVACY GUARD",
+                        text = headerTitle,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         letterSpacing = 0.5.sp
                     )
                     Text(
-                        text = displayDomain,
+                        text = headerSubtitle,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White.copy(alpha = 0.6f),
                         letterSpacing = 0.3.sp
                     )
                 }
+
+                // Header Action Button (Top Right Action)
+                when (currentScreen) {
+                    PrivacyGuardScreen.ADS_TRACKERS_BLOCKER -> {
+                        IconButton(
+                            onClick = { currentScreen = PrivacyGuardScreen.CONTENT_FILTERS },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                    PrivacyGuardScreen.CONTENT_FILTERS -> {
+                        IconButton(
+                            onClick = {
+                                viewModel.refreshAdFilters(context)
+                                Toast.makeText(context, "Filter list is updated successfully", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                    else -> { /* No Action */ }
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF1E293B)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
+            // --- Body ---
+            Box(modifier = Modifier.weight(1f)) {
+                when (currentScreen) {
+                    PrivacyGuardScreen.MAIN -> {
+                        Column(
                             modifier = Modifier
-                                .size(48.dp)
-                                .background(Color(0xFF10B981).copy(alpha = 0.15f), CircleShape),
-                            contentAlignment = Alignment.Center
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFF1E293B)
+                                ),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .background(Color(0xFF10B981).copy(alpha = 0.15f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Shield,
+                                            contentDescription = null,
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
 
-                        Spacer(modifier = Modifier.width(16.dp))
+                                    Spacer(modifier = Modifier.width(16.dp))
 
-                        Column {
+                                    Column {
+                                        Text(
+                                            text = "Quetta has blocked $blockedOnThisSite ads and trackers for you so far.",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { currentScreen = PrivacyGuardScreen.ADS_TRACKERS_BLOCKER },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFF1E293B)
+                                ),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = "Ads & Trackers Blocker",
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.KeyboardArrowRight,
+                                                    contentDescription = null,
+                                                    tint = Color.White.copy(alpha = 0.4f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Ads and pop-ups blocked & Trackers prevented from profiling you.",
+                                                fontSize = 12.sp,
+                                                color = Color.White.copy(alpha = 0.6f)
+                                            )
+                                        }
+
+                                        Switch(
+                                            checked = adBlockerOn,
+                                            onCheckedChange = { viewModel.toggleAdBlocker() },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = Color(0xFF10B981),
+                                                checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                                    TextButton(
+                                        onClick = {
+                                            Toast.makeText(context, "Site reported successfully! Thank you.", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.align(Alignment.Start),
+                                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF38BDF8))
+                                    ) {
+                                        Text(
+                                            text = "Report Site with ads",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
                             Text(
-                                text = "Quetta has blocked $blockedOnThisSite ads and trackers for you so far.",
-                                fontSize = 14.sp,
+                                text = "PRIVACY CONTROL",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White.copy(alpha = 0.5f),
+                                letterSpacing = 1.sp
                             )
-                        }
-                    }
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF1E293B)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Ads & Trackers Blocker",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Ads and pop-ups blocked & Trackers prevented from profiling you.",
-                                    fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.6f)
-                                )
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFF1E293B)
+                                ),
+                                shape = RoundedCornerShape(20.dp)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    PrivacyControlRow(
+                                        title = "Hide Distracting Items",
+                                        icon = Icons.Default.Block,
+                                        checked = hideDistractingItems,
+                                        onCheckedChange = { viewModel.setHideDistractingItems(it) }
+                                    )
+
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                                    PrivacyControlRow(
+                                        title = "Always Use HTTPS",
+                                        icon = Icons.Default.Lock,
+                                        checked = alwaysUseHttps,
+                                        onCheckedChange = { viewModel.setAlwaysUseHttps(it) }
+                                    )
+
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                                    PrivacyControlRow(
+                                        title = "Remove Fingerprint",
+                                        icon = Icons.Default.Fingerprint,
+                                        checked = removeFingerprint,
+                                        onCheckedChange = { viewModel.setRemoveFingerprint(it) }
+                                    )
+
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                                    PrivacyControlRow(
+                                        title = "Script Control",
+                                        icon = Icons.Default.Code,
+                                        checked = scriptControlEnabled,
+                                        onCheckedChange = { viewModel.setScriptControlEnabled(it) }
+                                    )
+
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                                    PrivacyControlRow(
+                                        title = "Cookie Management",
+                                        icon = Icons.Default.Cookie,
+                                        checked = cookieManagementMode == "block_third_party",
+                                        onCheckedChange = {
+                                            viewModel.setCookieManagementMode(if (it) "block_third_party" else "allow_all")
+                                        }
+                                    )
+
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                                    PrivacyControlRow(
+                                        title = "Stop App Redirects",
+                                        icon = Icons.Default.Smartphone,
+                                        checked = stopAppRedirects,
+                                        onCheckedChange = { viewModel.setStopAppRedirects(it) }
+                                    )
+                                }
                             }
 
-                            Switch(
-                                checked = adBlockerOn,
-                                onCheckedChange = { viewModel.toggleAdBlocker() },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color(0xFF10B981),
-                                    checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
-                                )
-                            )
+                            Spacer(modifier = Modifier.height(24.dp))
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-
-                        TextButton(
-                            onClick = {
-                                Toast.makeText(context, "Site reported successfully! Thank you.", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.align(Alignment.Start),
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF38BDF8))
+                    PrivacyGuardScreen.ADS_TRACKERS_BLOCKER -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
                         ) {
                             Text(
-                                text = "Report Site with ads",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
+                                text = "SAVED DOMAINS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.5f),
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    val sites = viewModel.getConfiguredAdBlockSites()
+                                    if (sites.isEmpty()) {
+                                        Text(
+                                            text = "No saved site preferences.",
+                                            fontSize = 13.sp,
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            modifier = Modifier.padding(16.dp)
+                                        )
+                                    } else {
+                                        sites.take(5).forEachIndexed { index, site ->
+                                            val siteBlockEnabled = viewModel.getSiteAdBlock(site)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { viewModel.setSiteAdBlock(site, !siteBlockEnabled) }
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = site,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = Color.White,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                Switch(
+                                                    checked = siteBlockEnabled,
+                                                    onCheckedChange = { viewModel.setSiteAdBlock(site, it) },
+                                                    colors = SwitchDefaults.colors(
+                                                        checkedThumbColor = Color(0xFF10B981),
+                                                        checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
+                                                    )
+                                                )
+                                            }
+                                            if (index < Math.min(sites.size, 5) - 1) {
+                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { currentScreen = PrivacyGuardScreen.MANAGE_SITE_OPTIONS }
+                                            .padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Manage Saved Site Options...",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF38BDF8)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowRight,
+                                            contentDescription = null,
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Text(
+                                text = "OTHER WEBSITES",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.5f),
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Block on all other websites",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.White
+                                        )
+                                    }
+                                    Switch(
+                                        checked = adBlockerOn,
+                                        onCheckedChange = { viewModel.toggleAdBlocker() },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = Color(0xFF10B981),
+                                            checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
+                                        )
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = "Ads & Trackers Blocker - Blocks image ads, script ads, and pop-ups while preventing data trackers from collecting your personal information, helping you browse faster, safer, and with less data usage.",
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    lineHeight = 16.sp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    PrivacyGuardScreen.MANAGE_SITE_OPTIONS -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                val sites = viewModel.getConfiguredAdBlockSites()
+                                if (sites.isEmpty()) {
+                                    Text(
+                                        text = "No saved sites.",
+                                        fontSize = 14.sp,
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        modifier = Modifier.padding(16.dp)
+                                    )
+                                } else {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        sites.forEachIndexed { index, site ->
+                                            val blockedCount = when (site) {
+                                                "sextb.net" -> 9
+                                                "pemsrv.com" -> 1
+                                                "s.pemsrv.com" -> 2
+                                                "123av.com" -> 3
+                                                "liteapks.com" -> 12
+                                                "tmail.io" -> 21
+                                                else -> 4
+                                            }
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = site,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White
+                                                    )
+                                                    Text(
+                                                        text = "$blockedCount items have been marked",
+                                                        fontSize = 11.sp,
+                                                        color = Color.White.copy(alpha = 0.5f)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.removeSiteAdBlock(site)
+                                                        Toast.makeText(context, "Removed site configuration for $site", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "Delete",
+                                                        tint = Color.Red.copy(alpha = 0.8f)
+                                                    )
+                                                }
+                                            }
+                                            if (index < sites.size - 1) {
+                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Text(
+                                text = "Be sure to use the Content Filter Syntax",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Red.copy(alpha = 0.8f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { currentScreen = PrivacyGuardScreen.CUSTOM_FILTERS_LIST }
+                                    .padding(vertical = 8.dp)
                             )
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = "PRIVACY CONTROL",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.5f),
-                    letterSpacing = 1.sp
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF1E293B)
-                    ),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        PrivacyControlRow(
-                            title = "Hide Distracting Items",
-                            icon = Icons.Default.Block,
-                            checked = hideDistractingItems,
-                            onCheckedChange = { viewModel.setHideDistractingItems(it) }
+                    PrivacyGuardScreen.CONTENT_FILTERS -> {
+                        val defaultIds = listOf(
+                            "easylist", "abpindo", "albania", "abpvn", "adguard_chinese", "adguard_dutch",
+                            "adguard_français", "adguard_japanese", "adguard_russian", "adguard_spanish_portuguese",
+                            "adguard_turkish", "adguard_url_tracking", "blocklist_antiporn", "brave_filters",
+                            "quetta_android", "bulgarian", "bypass_paywalls", "cjk_annoyance", "nordic_filters",
+                            "easyprivacy", "malicious_blocklist", "youtube_distractions", "mobile_ads", "oisd"
                         )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // Section: Custom Filter Lists
+                            Text(
+                                text = "CUSTOM FILTER LISTS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.5f),
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { currentScreen = PrivacyGuardScreen.ADD_CUSTOM_FILTER_URL }
+                                            .padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = null,
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = "Add filter via URL",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF38BDF8)
+                                        )
+                                    }
 
-                        PrivacyControlRow(
-                            title = "Always Use HTTPS",
-                            icon = Icons.Default.Lock,
-                            checked = alwaysUseHttps,
-                            onCheckedChange = { viewModel.setAlwaysUseHttps(it) }
-                        )
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-
-                        PrivacyControlRow(
-                            title = "Remove Fingerprint",
-                            icon = Icons.Default.Fingerprint,
-                            checked = removeFingerprint,
-                            onCheckedChange = { viewModel.setRemoveFingerprint(it) }
-                        )
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-
-                        PrivacyControlRow(
-                            title = "Script Control",
-                            icon = Icons.Default.Code,
-                            checked = scriptControlEnabled,
-                            onCheckedChange = { viewModel.setScriptControlEnabled(it) }
-                        )
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-
-                        PrivacyControlRow(
-                            title = "Cookie Management",
-                            icon = Icons.Default.Cookie,
-                            checked = cookieManagementMode == "block_third_party",
-                            onCheckedChange = {
-                                viewModel.setCookieManagementMode(if (it) "block_third_party" else "allow_all")
+                                    // Display any custom filter subscriptions
+                                    val customs = adFilters.filter { !defaultIds.contains(it.id) }
+                                    if (customs.isNotEmpty()) {
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                        customs.forEachIndexed { idx, sub ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(sub.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                                    Text(sub.url, fontSize = 11.sp, color = Color.White.copy(alpha = 0.5f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                                IconButton(onClick = { viewModel.deleteAdFilter(sub.id) }) {
+                                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.8f))
+                                                }
+                                            }
+                                            if (idx < customs.size - 1) {
+                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                        )
 
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                            Spacer(modifier = Modifier.height(20.dp))
 
-                        PrivacyControlRow(
-                            title = "Stop App Redirects",
-                            icon = Icons.Default.Smartphone,
-                            checked = stopAppRedirects,
-                            onCheckedChange = { viewModel.setStopAppRedirects(it) }
-                        )
+                            // Section: Custom Filters
+                            Text(
+                                text = "CUSTOM FILTERS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.5f),
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { currentScreen = PrivacyGuardScreen.CUSTOM_FILTERS_LIST }
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Create custom filters",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = Color.White.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            // Section: Preset Filter Lists
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "PRESET FILTER LISTS",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = "Reset",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF38BDF8),
+                                    modifier = Modifier
+                                        .clickable {
+                                            viewModel.resetPresetFiltersToDefault()
+                                            Toast.makeText(context, "Preset filters reset to defaults", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    val presets = adFilters.filter { defaultIds.contains(it.id) }
+                                    presets.forEachIndexed { index, sub ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { viewModel.toggleAdFilter(sub.id) }
+                                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = sub.name,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                val desc = when (sub.id) {
+                                                    "easylist" -> "Primary ad-blocking filter list maintained by the EasyList community."
+                                                    "abpindo" -> "Removes advertisements from Indonesian websites."
+                                                    "albania" -> "Removes advertisements from Albanian websites."
+                                                    "abpvn" -> "Removes advertisements from Vietnamese websites."
+                                                    "adguard_chinese" -> "Removes advertisements from Chinese websites."
+                                                    "adguard_dutch" -> "Removes advertisements from Dutch websites."
+                                                    "adguard_français" -> "Removes advertisements from French websites."
+                                                    "adguard_japanese" -> "Removes advertisements from Japanese websites."
+                                                    "adguard_russian" -> "Removes additional advertisements from Russian websites."
+                                                    "adguard_spanish_portuguese" -> "Removes advertisements from Spanish and Portuguese websites."
+                                                    "adguard_turkish" -> "Removes advertisements from Turkish websites."
+                                                    "adguard_url_tracking" -> "Removes tracking parameters from URLs."
+                                                    "blocklist_antiporn" -> "Blocks adult and pornographic domains."
+                                                    "brave_filters" -> "Brave browser rules for social and unbreak fixes."
+                                                    "quetta_android" -> "Android-only rules from Brave adblock-lists."
+                                                    "bulgarian" -> "Removes advertisements from Bulgarian websites."
+                                                    "bypass_paywalls" -> "Filters to bypass paywalls on news and magazine sites."
+                                                    "cjk_annoyance" -> "Removes annoyances on Chinese websites; may break some sites."
+                                                    "nordic_filters" -> "Removes advertisements from Norwegian, Danish, and Icelandic websites."
+                                                    "easyprivacy" -> "Blocks trackers and other privacy-invasive content."
+                                                    "malicious_blocklist" -> "Blocks malicious URLs from URLhaus."
+                                                    "youtube_distractions" -> "Removes distracting YouTube UI elements on mobile."
+                                                    "mobile_ads" -> "StevenBlack hosts list blocking ad and malware domains."
+                                                    "oisd" -> "OISD adblock host list."
+                                                    else -> "Removes unwanted elements and trackers."
+                                                }
+                                                Text(
+                                                    text = desc,
+                                                    fontSize = 11.sp,
+                                                    color = Color.White.copy(alpha = 0.5f),
+                                                    lineHeight = 14.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Last updated: ${sub.lastUpdated}  •  Size: ${sub.size}",
+                                                    fontSize = 10.sp,
+                                                    color = Color.White.copy(alpha = 0.4f)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Switch(
+                                                checked = sub.enabled,
+                                                onCheckedChange = { viewModel.toggleAdFilter(sub.id) },
+                                                colors = SwitchDefaults.colors(
+                                                    checkedThumbColor = Color(0xFF38BDF8),
+                                                    checkedTrackColor = Color(0xFF38BDF8).copy(alpha = 0.4f)
+                                                )
+                                            )
+                                        }
+                                        if (index < presets.size - 1) {
+                                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
+
+                    PrivacyGuardScreen.ADD_CUSTOM_FILTER_URL -> {
+                        var urlText by remember { mutableStateOf("") }
+                        var listNameText by remember { mutableStateOf("") }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            OutlinedTextField(
+                                value = listNameText,
+                                onValueChange = { listNameText = it },
+                                label = { Text("FILTER LIST NAME", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                                placeholder = { Text("Enter filter list name") },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF38BDF8),
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                                    focusedLabelColor = Color(0xFF38BDF8),
+                                    unfocusedLabelColor = Color.White.copy(alpha = 0.4f),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            OutlinedTextField(
+                                value = urlText,
+                                onValueChange = { urlText = it },
+                                label = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("CUSTOM FILTER LIST URL", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = "Help",
+                                            tint = Color.White.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                },
+                                placeholder = { Text("Enter filter list URL") },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF38BDF8),
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                                    focusedLabelColor = Color(0xFF38BDF8),
+                                    unfocusedLabelColor = Color.White.copy(alpha = 0.4f),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Button(
+                                onClick = {
+                                    if (urlText.isNotBlank()) {
+                                        val name = if (listNameText.isNotBlank()) listNameText else "Custom Filter List"
+                                        viewModel.addAdFilter(name, urlText)
+                                        Toast.makeText(context, "Filter subscription added successfully!", Toast.LENGTH_SHORT).show()
+                                        currentScreen = PrivacyGuardScreen.CONTENT_FILTERS
+                                    } else {
+                                        Toast.makeText(context, "Please enter a valid URL", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                            ) {
+                                Text("Add Filter List", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Text(
+                                text = "Add additional lists created and maintained by communities you trust.",
+                                fontSize = 12.sp,
+                                color = Color.Red.copy(alpha = 0.8f),
+                                textAlign = TextAlign.Center,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    PrivacyGuardScreen.CUSTOM_FILTERS_LIST -> {
+                        var ruleText by remember { mutableStateOf("") }
+                        Column(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = ruleText,
+                                    onValueChange = { ruleText = it },
+                                    placeholder = { Text("domain.com##.ad-class or domain.com###id") },
+                                    modifier = Modifier.weight(1f),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF38BDF8),
+                                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        if (ruleText.isNotBlank()) {
+                                            viewModel.addCustomFilterRule(ruleText)
+                                            ruleText = ""
+                                            Toast.makeText(context, "Rule added successfully", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
+                                    contentPadding = PaddingValues(horizontal = 12.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add", tint = Color.White)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "Be sure to use the Content Filter Syntax",
+                                fontSize = 12.sp,
+                                color = Color.Red.copy(alpha = 0.8f),
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (customFilterRules.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("No custom rules defined yet.", color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
+                                    }
+                                } else {
+                                    LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                                        items(customFilterRules.size) { idx ->
+                                            val rule = customFilterRules[idx]
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = rule,
+                                                    fontSize = 13.sp,
+                                                    color = Color.White,
+                                                    modifier = Modifier.weight(1f),
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.deleteCustomFilterRule(rule)
+                                                        Toast.makeText(context, "Rule removed", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "Delete",
+                                                        tint = Color.Red.copy(alpha = 0.6f),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                            if (idx < customFilterRules.size - 1) {
+                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -4475,30 +5320,47 @@ fun AdBlockerPanel(
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // Custom Site Force Dark Mode
-                            var siteDarkOn by remember(domain) { mutableStateOf(viewModel.getSiteForceDark(domain)) }
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            var siteDarkPrefMode by remember(domain) { 
+                                mutableStateOf(com.example.ui.BrowserFeaturesManager.siteDarkPref[domain] ?: "Auto") 
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Column {
-                                    Text("Force Site Dark Mode", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
-                                    Text("Inverts background colors locally.", fontSize = 9.sp, color = onSurfaceVariantColor)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Smart Dark Mode", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
+                                    Text("Page color-analyzer & text inversion.", fontSize = 9.sp, color = onSurfaceVariantColor)
                                 }
-                                Switch(
-                                    checked = siteDarkOn,
-                                    onCheckedChange = {
-                                        siteDarkOn = it
-                                        viewModel.setSiteForceDark(domain, it)
-                                    },
-                                    modifier = Modifier.scale(0.8f),
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = onPrimaryColor,
-                                        checkedTrackColor = primaryColor,
-                                        uncheckedThumbColor = outlineColor,
-                                        uncheckedTrackColor = surfaceVariantColor
-                                    )
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    listOf("Auto", "Force Dark", "Force Light").forEach { modeName ->
+                                        val isSel = siteDarkPrefMode == modeName
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    if (isSel) primaryColor else surfaceVariantColor,
+                                                    RoundedCornerShape(6.dp)
+                                                )
+                                                .clickable {
+                                                    siteDarkPrefMode = modeName
+                                                    com.example.ui.BrowserFeaturesManager.saveDarkPref(context, domain, modeName)
+                                                    viewModel.setSiteForceDark(domain, modeName == "Force Dark")
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (modeName == "Force Dark") "Dark" else if (modeName == "Force Light") "Light" else "Auto",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSel) onPrimaryColor else onSurfaceVariantColor
+                                            )
+                                        }
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
@@ -4783,38 +5645,24 @@ fun TabSwitcherLayout(
     var dragStartRootPos by remember { mutableStateOf(Offset.Zero) }
     val itemBounds = remember { mutableStateMapOf<Long, Rect>() }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .fillMaxHeight(0.95f)
-            .shadow(24.dp, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)),
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = containerColor
-        )
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = containerColor
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(vertical = 12.dp)
         ) {
-            // Drag handle indicator
+            // Capsule Normal vs Private Selector Row + Navigation Controls in Header
             Box(
                 modifier = Modifier
-                    .width(40.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color.LightGray.copy(alpha = 0.6f))
-                    .align(Alignment.CenterHorizontally)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Capsule Normal vs Private Selector Row (Styled exactly like the iPhone mockup)
-            Box(
-                modifier = Modifier.fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
+                // Centered Capsule (Styled exactly like the iPhone mockup)
                 Row(
                     modifier = Modifier
                         .background(capsuleBg, RoundedCornerShape(100.dp))
@@ -4864,86 +5712,43 @@ fun TabSwitcherLayout(
                         )
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Title and stack management buttons
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (selectedMode == 0) "Normal Tabs" else "Private Tabs",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = primaryTextColor
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Stacks/Manage Groups button on far left
+                IconButton(
+                    onClick = onManageGroups,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(36.dp)
+                        .background(buttonBg, CircleShape)
+                        .shadow(2.dp, CircleShape)
                 ) {
-                    IconButton(
-                        onClick = onManageGroups,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(buttonBg, CircleShape)
-                            .shadow(2.dp, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FolderOpen,
-                            contentDescription = "Stacks",
-                            tint = buttonTint,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = "Stacks",
+                        tint = buttonTint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
 
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(buttonBg, CircleShape)
-                            .shadow(2.dp, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close Tab Switcher",
-                            tint = buttonTint,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                // Close Button on far right
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .size(36.dp)
+                        .background(buttonBg, CircleShape)
+                        .shadow(2.dp, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Tab Switcher",
+                        tint = buttonTint,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Tab Search Field
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChanged,
-                placeholder = { Text("Search tabs...", color = Color.Gray, fontSize = 14.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray, modifier = Modifier.size(18.dp)) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .height(48.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedContainerColor = searchContainerBg,
-                    unfocusedContainerColor = searchContainerBg,
-                    focusedTextColor = primaryTextColor,
-                    unfocusedTextColor = primaryTextColor
-                ),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Main Content Area: 2-Column Responsive Grid
             Box(
@@ -5010,9 +5815,9 @@ fun TabSwitcherLayout(
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 80.dp),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 130.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
                         items(groupedItems, key = { it.id }) { item ->
                             val itemId = when (item) {
@@ -5130,7 +5935,8 @@ fun TabSwitcherLayout(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 32.dp, vertical = 20.dp)
                 ) {
                     // Trash / Close all on left
                     IconButton(
@@ -5140,40 +5946,136 @@ fun TabSwitcherLayout(
                         },
                         modifier = Modifier
                             .align(Alignment.CenterStart)
-                            .size(54.dp)
+                            .size(60.dp)
+                            .shadow(12.dp, CircleShape)
                             .background(Color.White, CircleShape)
-                            .shadow(4.dp, CircleShape)
+                            .border(1.dp, Color.Black.copy(alpha = 0.05f), CircleShape)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = Icons.Default.DeleteOutline,
                             contentDescription = "Close all tabs",
-                            tint = Color.Red,
-                            modifier = Modifier.size(24.dp)
+                            tint = Color(0xFF0F172A),
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
                     // Floating Add New Tab on right
-                    FloatingActionButton(
+                    IconButton(
                         onClick = {
                             onNewTab()
                             onClose()
                         },
-                        containerColor = Color(0xFF3B82F6),
-                        contentColor = Color.White,
-                        shape = CircleShape,
-                        elevation = FloatingActionButtonDefaults.elevation(4.dp),
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
-                            .size(54.dp)
+                            .size(60.dp)
+                            .shadow(12.dp, CircleShape)
+                            .background(Color.White, CircleShape)
+                            .border(1.dp, Color.Black.copy(alpha = 0.05f), CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Open new tab",
+                            tint = Color(0xFF0F172A),
                             modifier = Modifier.size(28.dp)
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun TabThumbnailPreview(
+    tabId: Long,
+    url: String,
+    title: String,
+    isDarkTheme: Boolean
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val trigger by TabThumbnailManager.thumbnailUpdateTrigger.collectAsState()
+    val frames = remember(tabId, trigger) {
+        TabThumbnailManager.getThumbnailFrames(context, tabId)
+    }
+
+    if (frames.isEmpty()) {
+        WebpageVisualPreview(url, title, isDarkTheme)
+    } else {
+        var frameIndex by remember(frames) { mutableIntStateOf(0) }
+        if (frames.size > 1) {
+            LaunchedEffect(frames) {
+                while (true) {
+                    kotlinx.coroutines.delay(800)
+                    frameIndex = (frameIndex + 1) % frames.size
+                }
+            }
+        }
+
+        val currentFrame = remember(frames, frameIndex) {
+            if (frameIndex < frames.size) frames[frameIndex] else frames.first()
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                painter = rememberAsyncImagePainter(
+                    model = currentFrame
+                ),
+                contentDescription = "Tab preview thumbnail",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+    }
+}
+
+@Composable
+fun LivePreviewBadge(tabId: Long, isDarkTheme: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val trigger by TabThumbnailManager.thumbnailUpdateTrigger.collectAsState()
+
+    val badgeText = remember(tabId, trigger) {
+        TabThumbnailManager.getUpdatedAgoString(context, tabId)
+    }
+
+    if (badgeText.isNotEmpty()) {
+        Row(
+            modifier = Modifier
+                .padding(6.dp)
+                .background(
+                    color = if (isDarkTheme) Color.Black.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(100.dp)
+                )
+                .border(
+                    width = 0.5.dp,
+                    color = if (isDarkTheme) Color.White.copy(alpha = 0.2f) else Color.Gray.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(100.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+            val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.3f,
+                targetValue = 1.0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "alpha"
+            )
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .graphicsLayer { this.alpha = alpha }
+                    .background(Color(0xFF10B981), CircleShape)
+            )
+            Text(
+                text = badgeText,
+                color = if (isDarkTheme) Color.White else Color.Black,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -5244,7 +6146,7 @@ fun WebpageVisualPreview(url: String, title: String, isDarkTheme: Boolean) {
                     Text("Trending Streams", color = textSecondary, fontSize = 8.sp)
                 }
             }
-            lowerUrl.contains("apple") -> {
+            lowerUrl.contains("apple") && !lowerUrl.contains("developer") && !lowerUrl.contains("wwdc") -> {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -5264,6 +6166,155 @@ fun WebpageVisualPreview(url: String, title: String, isDarkTheme: Boolean) {
                         Box(modifier = Modifier.weight(1f).height(45.dp).background(Color(0xFFFCE7F3), RoundedCornerShape(4.dp)))
                     }
                     Text("Reserve Gourmet Dining", color = textSecondary, fontSize = 8.sp)
+                }
+            }
+            lowerUrl.contains("news") || lowerUrl.contains("wsj") || lowerUrl.contains("lifestyle") || lowerUrl.contains("idb") || lowerUrl.contains("idownloadblog") -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White)
+                        .padding(4.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("WSJ", fontWeight = FontWeight.Black, fontSize = 11.sp, fontFamily = FontFamily.Serif, color = Color.Black)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(modifier = Modifier.background(Color(0xFFC23E50), RoundedCornerShape(2.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+                                    Text("SUBSCRIBE", color = Color.White, fontSize = 5.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Box(modifier = Modifier.border(0.5.dp, Color.Gray, RoundedCornerShape(2.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+                                    Text("SIGN IN", color = Color.Black, fontSize = 5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        
+                        HorizontalDivider(color = Color.LightGray, thickness = 0.5.dp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF3F4F6)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                Box(modifier = Modifier.size(24.dp).background(Color(0xFFE5E7EB), CircleShape)) {
+                                    Icon(Icons.Default.SportsGolf, null, tint = Color(0xFFC23E50), modifier = Modifier.size(16.dp).align(Alignment.Center))
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("A world of journalism", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                            }
+                        }
+                    }
+                }
+            }
+            lowerUrl.contains("developer") || lowerUrl.contains("wwdc") || lowerUrl.contains("work") -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .padding(6.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(" Developer", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        }
+                        
+                        Column {
+                            Text("WWDC24 highlights", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                            Text("Browse the biggest moments from an incredible week.", color = Color.Gray, fontSize = 7.sp, maxLines = 2)
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .align(Alignment.CenterHorizontally)
+                                .background(Brush.radialGradient(listOf(Color(0xFF8B5CF6), Color.Transparent)), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+            lowerUrl.contains("medium") || lowerUrl.contains("reading") || lowerUrl.contains("blog") -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White)
+                        .padding(6.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Medium", fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Serif, color = Color.Black)
+                            Box(modifier = Modifier.background(Color.Black, RoundedCornerShape(10.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                Text("Get started", color = Color.White, fontSize = 6.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Human\nstories\n& ideas.", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Serif, lineHeight = 16.sp)
+                        }
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(modifier = Modifier.size(8.dp).background(Color.LightGray, CircleShape))
+                            Text("Join Medium for $5", color = Color.Gray, fontSize = 7.sp)
+                        }
+                    }
+                }
+            }
+            lowerUrl.contains("flamingo") || lowerUrl.contains("estate") || lowerUrl.contains("shop") -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFEAE6DF))
+                        .padding(6.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("FLAMINGO ESTATE", fontWeight = FontWeight.Bold, fontSize = 8.sp, color = Color.DarkGray, letterSpacing = 1.sp)
+                        
+                        Box(
+                            modifier = Modifier
+                                .width(20.dp)
+                                .height(32.dp)
+                                .background(Color(0xFF2D3748), RoundedCornerShape(2.dp))
+                                .border(0.5.dp, Color(0xFFFFD700).copy(alpha = 0.5f), RoundedCornerShape(2.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.8f)
+                                    .height(10.dp)
+                                    .background(Color.White.copy(alpha = 0.8f))
+                            ) {
+                                Text("OILS", color = Color.Black, fontSize = 4.sp, modifier = Modifier.align(Alignment.Center))
+                            }
+                        }
+                        
+                        Text("Our collection of pure things", color = Color.Gray, fontSize = 6.sp)
+                    }
                 }
             }
             else -> {
@@ -5400,8 +6451,15 @@ fun TabGridItem(
                     shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
                 )
         ) {
-            WebpageVisualPreview(url = tab.url, title = tab.title, isDarkTheme = isDarkTheme)
+            TabThumbnailPreview(tabId = tab.id, url = tab.url, title = tab.title, isDarkTheme = isDarkTheme)
             
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+            ) {
+                LivePreviewBadge(tabId = tab.id, isDarkTheme = isDarkTheme)
+            }
+
             // Stack badge overlay if grouped
             if (tab.groupName != null) {
                 Box(
@@ -5443,13 +6501,13 @@ fun TabSingleCard(
 
     // Border highlights
     val borderColor = if (isHovered) {
-        Color(0xFF3B82F6)
+        Color(0xFF38BDF8)
     } else if (isSelected) {
-        Color(0xFF3B82F6)
+        Color(0xFF38BDF8)
     } else {
-        if (isDarkTheme) Color.White.copy(alpha = 0.15f) else Color.LightGray.copy(alpha = 0.5f)
+        if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.LightGray.copy(alpha = 0.4f)
     }
-    val borderWidth = if (isHovered) 3.5.dp else if (isSelected) 2.5.dp else 1.dp
+    val borderWidth = if (isHovered) 3.5.dp else if (isSelected) 3.dp else 1.dp
 
     // Header pill color: White/Light Gray in Light Mode, Dark Slate in Dark Mode
     val headerBgColor = if (isDarkTheme) Color(0xFF1E293B) else Color.White
@@ -5566,16 +6624,23 @@ fun TabSingleCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(125.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .aspectRatio(16f / 19f)
+                .clip(RoundedCornerShape(28.dp))
                 .background(previewBg)
                 .border(
                     width = borderWidth,
                     color = borderColor,
-                    shape = RoundedCornerShape(24.dp)
+                    shape = RoundedCornerShape(28.dp)
                 )
         ) {
-            WebpageVisualPreview(url = tab.url, title = tab.title, isDarkTheme = isDarkTheme)
+            TabThumbnailPreview(tabId = tab.id, url = tab.url, title = tab.title, isDarkTheme = isDarkTheme)
+            
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+            ) {
+                LivePreviewBadge(tabId = tab.id, isDarkTheme = isDarkTheme)
+            }
             
             if (tab.isLocked) {
                 Box(
@@ -5646,13 +6711,13 @@ fun TabGroupCard(
     // Border highlights
     val isSelected = tabs.any { it.isSelected }
     val borderColor = if (isHovered) {
-        Color(0xFF3B82F6)
+        Color(0xFF38BDF8)
     } else if (isSelected) {
-        Color(0xFF3B82F6)
+        Color(0xFF38BDF8)
     } else {
-        if (isDarkTheme) Color.White.copy(alpha = 0.15f) else Color.LightGray.copy(alpha = 0.5f)
+        if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.LightGray.copy(alpha = 0.4f)
     }
-    val borderWidth = if (isHovered) 3.5.dp else if (isSelected) 2.5.dp else 1.dp
+    val borderWidth = if (isHovered) 3.5.dp else if (isSelected) 3.dp else 1.dp
 
     // Swiping Gestures
     var dragAmountAccumulated by remember { mutableStateOf(0f) }
@@ -5732,24 +6797,22 @@ fun TabGroupCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(135.dp)
-                .padding(bottom = 6.dp)
+                .aspectRatio(16f / 19f)
+                .padding(top = 16.dp)
         ) {
             // Layer 2 (Back card)
             if (tabs.size > 2) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .height(115.dp)
-                        .align(Alignment.BottomCenter)
-                        .offset(y = (-4).dp)
-                        .scale(0.92f)
-                        .clip(RoundedCornerShape(24.dp))
+                        .fillMaxSize()
+                        .offset(y = (-14).dp)
+                        .scale(0.88f)
+                        .clip(RoundedCornerShape(28.dp))
                         .background(previewBg.copy(alpha = 0.4f))
                         .border(
                             width = 1.dp,
                             color = borderColor.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(24.dp)
+                            shape = RoundedCornerShape(28.dp)
                         )
                 )
             }
@@ -5758,17 +6821,15 @@ fun TabGroupCard(
             if (tabs.size > 1) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.92f)
-                        .height(120.dp)
-                        .align(Alignment.BottomCenter)
-                        .offset(y = (-2).dp)
-                        .scale(0.96f)
-                        .clip(RoundedCornerShape(24.dp))
+                        .fillMaxSize()
+                        .offset(y = (-7).dp)
+                        .scale(0.94f)
+                        .clip(RoundedCornerShape(28.dp))
                         .background(previewBg.copy(alpha = 0.7f))
                         .border(
                             width = 1.dp,
                             color = borderColor.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(24.dp)
+                            shape = RoundedCornerShape(28.dp)
                         )
                 )
             }
@@ -5776,14 +6837,13 @@ fun TabGroupCard(
             // Foreground Active Preview Card
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(125.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(28.dp))
                     .background(previewBg)
                     .border(
                         width = borderWidth,
                         color = borderColor,
-                        shape = RoundedCornerShape(24.dp)
+                        shape = RoundedCornerShape(28.dp)
                     )
             ) {
                 AnimatedContent(
@@ -5802,12 +6862,20 @@ fun TabGroupCard(
                     label = "TabGroupSwiper"
                 ) { targetTab ->
                     Box(modifier = Modifier.fillMaxSize()) {
-                        WebpageVisualPreview(
+                        TabThumbnailPreview(
+                            tabId = targetTab.id,
                             url = targetTab.url,
                             title = targetTab.title,
                             isDarkTheme = isDarkTheme
                         )
                     }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                ) {
+                    LivePreviewBadge(tabId = activeTab.id, isDarkTheme = isDarkTheme)
                 }
 
                 Box(
@@ -9305,6 +10373,21 @@ fun AiAutomationSubScreen(
                     subtitle = "Expose a smart text summarizing menu shortcut on eligible articles and readable posts.",
                     checked = aiSmartSummarizerEnabled,
                     onCheckedChange = { viewModel.setAISmartSummarizerEnabled(it) }
+                )
+
+                HorizontalDivider(color = dividerColor)
+
+                // 5. Duplicate Tab Detector
+                val context = androidx.compose.ui.platform.LocalContext.current
+                var duplicateDetectionOn by remember { mutableStateOf(com.example.ui.BrowserFeaturesManager.duplicateTabDetectionEnabled.value) }
+                PrivacySwitchRow(
+                    title = "Smart Duplicate Tab Detector",
+                    subtitle = "Compare requested URLs with open tabs. Automatically offer switching, replacing, or keeping both for clean session layouts.",
+                    checked = duplicateDetectionOn,
+                    onCheckedChange = {
+                        duplicateDetectionOn = it
+                        com.example.ui.BrowserFeaturesManager.setDuplicateTabDetectionEnabled(context, it)
+                    }
                 )
             }
         }

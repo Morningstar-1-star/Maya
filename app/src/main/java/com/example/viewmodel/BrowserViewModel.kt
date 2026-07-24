@@ -18,6 +18,7 @@ import com.example.data.DnsManager
 import com.example.data.AdBlocker
 import com.example.data.VideoTrimmerHelper
 import android.content.Context
+import android.net.Uri
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -30,6 +31,7 @@ enum class TabLayoutStyle {
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: BrowserRepository
+    private val prefs = application.getSharedPreferences("browser_settings", Context.MODE_PRIVATE)
 
     // Base database flows
     val allTabs: StateFlow<List<BrowserTab>>
@@ -40,9 +42,34 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val likedSavedMedia: StateFlow<List<CapturedMedia>>
     val allUserScripts: StateFlow<List<UserScript>>
     val allDownloads: StateFlow<List<com.example.data.DownloadEntry>>
+    val allVaultItems: StateFlow<List<com.example.data.VaultItem>>
+    val allCategoryLists: StateFlow<List<com.example.data.CategoryListEntity>>
+    val allListItems: StateFlow<List<com.example.data.ListItemEntity>>
+    val allTelegramMedia: StateFlow<List<com.example.data.TelegramMedia>>
+
+    private val _tgBotToken = MutableStateFlow(prefs.getString("tg_bot_token", "") ?: "")
+    val tgBotToken: StateFlow<String> = _tgBotToken.asStateFlow()
+
+    private val _tgChannelName = MutableStateFlow(prefs.getString("tg_channel_name", "") ?: "")
+    val tgChannelName: StateFlow<String> = _tgChannelName.asStateFlow()
+
+    private val _isTelegramLoading = MutableStateFlow(false)
+    val isTelegramLoading: StateFlow<Boolean> = _isTelegramLoading.asStateFlow()
+
+    // Vault/Collections States
+    private val _activeLongPressedImage = MutableStateFlow<String?>(null)
+    val activeLongPressedImage: StateFlow<String?> = _activeLongPressedImage.asStateFlow()
+
+    private val _longPressedImageTitle = MutableStateFlow("")
+    val longPressedImageTitle: StateFlow<String> = _longPressedImageTitle.asStateFlow()
+
+    private val _longPressedImagePageUrl = MutableStateFlow("")
+    val longPressedImagePageUrl: StateFlow<String> = _longPressedImagePageUrl.asStateFlow()
+
+    private val _isVaultCollectionScreenVisible = MutableStateFlow(false)
+    val isVaultCollectionScreenVisible: StateFlow<Boolean> = _isVaultCollectionScreenVisible.asStateFlow()
 
     // Custom Wallpaper State
-    private val prefs = application.getSharedPreferences("browser_settings", Context.MODE_PRIVATE)
     private val _customWallpaperUrl = MutableStateFlow<String?>(prefs.getString("custom_wallpaper_url", null))
     val customWallpaperUrl: StateFlow<String?> = _customWallpaperUrl.asStateFlow()
 
@@ -127,6 +154,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val _adFilters = MutableStateFlow<List<com.example.data.AdFilterSubscription>>(emptyList())
     val adFilters: StateFlow<List<com.example.data.AdFilterSubscription>> = _adFilters.asStateFlow()
+
+    private val _customFilterRules = MutableStateFlow<List<String>>(emptyList())
+    val customFilterRules: StateFlow<List<String>> = _customFilterRules.asStateFlow()
 
     // Element Block Confirm Dialog State
     private val _pendingBlockElementSelector = MutableStateFlow<String?>(null)
@@ -652,6 +682,54 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _isBookmarksHistorySheetVisible = MutableStateFlow(false)
     val isBookmarksHistorySheetVisible: StateFlow<Boolean> = _isBookmarksHistorySheetVisible.asStateFlow()
 
+    private val _isPermissionDashboardVisible = MutableStateFlow(false)
+    val isPermissionDashboardVisible: StateFlow<Boolean> = _isPermissionDashboardVisible.asStateFlow()
+
+    fun setPermissionDashboardVisible(visible: Boolean) {
+        _isPermissionDashboardVisible.value = visible
+    }
+
+    private val _isSiteDashboardVisible = MutableStateFlow(false)
+    val isSiteDashboardVisible: StateFlow<Boolean> = _isSiteDashboardVisible.asStateFlow()
+
+    fun setSiteDashboardVisible(visible: Boolean) {
+        _isSiteDashboardVisible.value = visible
+    }
+
+    private val _isAutoRefreshRuleVisible = MutableStateFlow(false)
+    val isAutoRefreshRuleVisible: StateFlow<Boolean> = _isAutoRefreshRuleVisible.asStateFlow()
+
+    fun setAutoRefreshRuleVisible(visible: Boolean) {
+        _isAutoRefreshRuleVisible.value = visible
+    }
+
+    suspend fun getGeminiExplanation(text: String, queryType: String): String {
+        val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+            return "Please configure your GEMINI_API_KEY in the Secrets panel."
+        }
+        val prompt = when(queryType) {
+            "summary" -> "Provide a bullet-point summary of this text:\n\n$text"
+            "translate" -> "Translate this text into Spanish (or detect language and translate to English if not English):\n\n$text"
+            "explain" -> "Explain the following difficult words or concept in simple terms:\n\n$text"
+            else -> "Analyze the following text:\n\n$text"
+        }
+        val request = com.example.data.GenerateContentRequest(
+            contents = listOf(com.example.data.Content(
+                parts = listOf(com.example.data.Part(text = prompt))
+            ))
+        )
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val response = com.example.data.RetrofitClient.service.generateContent(apiKey, request)
+                response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text 
+                    ?: "No reply from AI."
+            } catch (e: Exception) {
+                "Error: ${e.localizedMessage}"
+            }
+        }
+    }
+
     private val _isMediaStudioVisible = MutableStateFlow(false)
     val isMediaStudioVisible: StateFlow<Boolean> = _isMediaStudioVisible.asStateFlow()
 
@@ -718,6 +796,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _perSitePrefsTrigger.value += 1
     }
 
+    fun removeSiteAdBlock(domain: String) {
+        if (domain.isBlank()) return
+        prefs.edit().remove("site_adblock_$domain").apply()
+        _perSitePrefsTrigger.value += 1
+    }
+
     fun getSiteScriptsEnabled(domain: String): Boolean {
         return if (domain.isBlank()) true else prefs.getBoolean("site_scripts_$domain", true)
     }
@@ -752,6 +836,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     init {
         AdBlocker.initialize(application)
         _adFilters.value = loadAdFilters()
+        _customFilterRules.value = loadCustomFilterRules()
+
+        // Initialize default adblock configurations if not present to look realistic
+        if (!prefs.contains("site_adblock_initialized")) {
+            val defaults = mapOf(
+                "cuttty.com" to false,
+                "drive.olamovies.download" to false,
+                "exeygo.com" to false,
+                "gplinks.co" to false,
+                "links.olamovies.mov" to false,
+                "lockr.net" to true,
+                "lockr.so" to true,
+                "powergam.online" to true,
+                "roshy.tv" to true,
+                "sanadegreecollege.in" to false,
+                "sextb.net" to true
+            )
+            val editor = prefs.edit()
+            for ((domain, adBlockEnabled) in defaults) {
+                editor.putBoolean("site_adblock_$domain", adBlockEnabled)
+            }
+            editor.putBoolean("site_adblock_initialized", true)
+            editor.apply()
+        }
         
         // Only trigger network update/sync on startup if the local cache file is missing or empty
         val cacheFile = java.io.File(application.filesDir, "blocked_hosts.txt")
@@ -821,6 +929,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             initialValue = emptyList()
         )
 
+        allVaultItems = repository.allVaultItems.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        allCategoryLists = repository.allCategoryLists.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        allListItems = repository.allListItems.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        allTelegramMedia = repository.allTelegramMedia.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
         // Prepopulate default user scripts if empty
         viewModelScope.launch {
             val existingScripts = repository.allUserScripts.first()
@@ -858,15 +990,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         // Prepopulate default shortcuts if empty
         viewModelScope.launch {
             val existing = repository.allShortcuts.first()
-            if (existing.isEmpty()) {
-                repository.insertShortcut(HomepageShortcut(title = "Amazon", url = "https://www.amazon.com"))
-                repository.insertShortcut(HomepageShortcut(title = "iDB", url = "https://www.idownloadblog.com"))
-                repository.insertShortcut(HomepageShortcut(title = "Increase platelet count...", url = "https://www.google.com/search?q=increase+platelet+count"))
-                repository.insertShortcut(HomepageShortcut(title = "Thrombocytopenia (lo...", url = "https://www.mayoclinic.org"))
+            existing.find { it.title.equals("Quetta", ignoreCase = true) }?.let { quettaShortcut ->
+                repository.deleteShortcutById(quettaShortcut.id)
+            }
+            if (existing.isEmpty() || (existing.size == 1 && existing.any { it.title.equals("Quetta", ignoreCase = true) })) {
+                repository.insertShortcut(HomepageShortcut(title = "DuckDuckGo", url = "https://duckduckgo.com"))
                 repository.insertShortcut(HomepageShortcut(title = "Apple", url = "https://www.apple.com"))
-                repository.insertShortcut(HomepageShortcut(title = "Wikipedia", url = "https://www.wikipedia.org"))
+                repository.insertShortcut(HomepageShortcut(title = "iCloud", url = "https://www.icloud.com"))
                 repository.insertShortcut(HomepageShortcut(title = "Google", url = "https://www.google.com"))
-                repository.insertShortcut(HomepageShortcut(title = "Ankur iDB", url = "https://www.idownloadblog.com"))
+                repository.insertShortcut(HomepageShortcut(title = "Microsoft", url = "https://www.microsoft.com"))
+                repository.insertShortcut(HomepageShortcut(title = "Microsoft 365", url = "https://www.office.com"))
+                repository.insertShortcut(HomepageShortcut(title = "Developer Tools", url = "https://www.google.com"))
+                repository.insertShortcut(HomepageShortcut(title = "Telegram", url = "https://telegram.org"))
             }
         }
 
@@ -901,6 +1036,143 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         size = "12.5 MB"
                     )
                 )
+            }
+        }
+
+        // Prepopulate default vault items if empty
+        viewModelScope.launch {
+            val existing = repository.allVaultItems.first()
+            if (existing.isEmpty()) {
+                repository.insertVaultItem(
+                    com.example.data.VaultItem(
+                        title = "Ohtani's Hawaii Home",
+                        url = "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=600",
+                        pageUrl = "https://www.architecturaldigest.com",
+                        pageTitle = "Architectural Digest - Shohei Ohtani's Estate",
+                        type = "image",
+                        collectionName = "Shopping",
+                        extraData = "$20,000,000"
+                    )
+                )
+                repository.insertVaultItem(
+                    com.example.data.VaultItem(
+                        title = "Charmast Power Bank 20000mAh, 20W Fast Charging",
+                        url = "https://images.unsplash.com/photo-1609592424109-dd031e50f381?q=80&w=600",
+                        pageUrl = "https://www.amazon.com",
+                        pageTitle = "Amazon.com: Charmast Power Bank",
+                        type = "image",
+                        collectionName = "Shopping",
+                        extraData = "$29.99"
+                    )
+                )
+                repository.insertVaultItem(
+                    com.example.data.VaultItem(
+                        title = "Buy Wireless Headphones",
+                        url = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=600",
+                        pageUrl = "https://www.sony.com",
+                        pageTitle = "Sony Electronics - Wireless Noise Canceling Headphones",
+                        type = "image",
+                        collectionName = "Shopping",
+                        extraData = "$120.00"
+                    )
+                )
+                repository.insertVaultItem(
+                    com.example.data.VaultItem(
+                        title = "Modern Mediterranean Cuisine",
+                        url = "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?q=80&w=600",
+                        pageUrl = "https://www.bonappetit.com",
+                        pageTitle = "Mediterranean Summer Salads",
+                        type = "image",
+                        collectionName = "Food",
+                        extraData = "Recipe"
+                    )
+                )
+                repository.insertVaultItem(
+                    com.example.data.VaultItem(
+                        title = "Marathon Performance Running Shoes",
+                        url = "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=600",
+                        pageUrl = "https://www.nike.com",
+                        pageTitle = "Nike Running - Pegasus Elite",
+                        type = "image",
+                        collectionName = "Sports",
+                        extraData = "$150.00"
+                    )
+                )
+                repository.insertVaultItem(
+                    com.example.data.VaultItem(
+                        title = "Save 30% for Hawaii Trip",
+                        url = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=600",
+                        pageUrl = "https://www.tripadvisor.com",
+                        pageTitle = "Hawaii Travel Planning",
+                        type = "image",
+                        collectionName = "Goals",
+                        extraData = "Goal: 70%"
+                    )
+                )
+                repository.insertVaultItem(
+                    com.example.data.VaultItem(
+                        title = "Annual Developers Summit",
+                        url = "https://images.unsplash.com/photo-1540575467063-178a50c2df87?q=80&w=600",
+                        pageUrl = "https://www.google.com/events",
+                        pageTitle = "Google I/O developer hub",
+                        type = "image",
+                        collectionName = "Events",
+                        extraData = "Oct 10"
+                    )
+                )
+            }
+
+            // Prepopulate Category Lists if empty
+            val existingLists = repository.allCategoryLists.first()
+            if (existingLists.isEmpty()) {
+                val defaultLists = listOf(
+                    com.example.data.CategoryListEntity(name = "Movies & TV", iconName = "Movie", colorHex = "#3B82F6", type = "Movies"),
+                    com.example.data.CategoryListEntity(name = "Books to Read", iconName = "Book", colorHex = "#10B981", type = "Books"),
+                    com.example.data.CategoryListEntity(name = "Favorite Music", iconName = "Music", colorHex = "#8B5CF6", type = "Music"),
+                    com.example.data.CategoryListEntity(name = "Video Games", iconName = "Game", colorHex = "#EF4444", type = "Video Games"),
+                    com.example.data.CategoryListEntity(name = "Places & Restaurants", iconName = "Place", colorHex = "#F59E0B", type = "Places"),
+                    com.example.data.CategoryListEntity(name = "Saved Web Links", iconName = "Link", colorHex = "#06B6D4", type = "Web Links")
+                )
+                defaultLists.forEach { list ->
+                    val listId = repository.insertCategoryList(list)
+                    if (list.type == "Movies") {
+                        repository.insertListItem(
+                            com.example.data.ListItemEntity(
+                                listId = listId,
+                                title = "Interstellar",
+                                subtitle = "Sci-Fi / Adventure",
+                                description = "A team of explorers travel through a wormhole in space in an attempt to ensure humanity's survival.",
+                                imageUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=600",
+                                rating = 5.0f,
+                                notes = "Must watch in IMAX!",
+                                isCompleted = true,
+                                releaseDate = "2014",
+                                webUrl = "https://www.imdb.com/title/tt0816692/"
+                            )
+                        )
+                    } else if (list.type == "Books") {
+                        repository.insertListItem(
+                            com.example.data.ListItemEntity(
+                                listId = listId,
+                                title = "Atomic Habits",
+                                subtitle = "By James Clear",
+                                description = "An Easy & Proven Way to Build Good Habits & Break Bad Ones.",
+                                imageUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?q=80&w=600",
+                                rating = 4.8f,
+                                notes = "Great practical advice for daily routines.",
+                                isCompleted = false,
+                                releaseDate = "2018",
+                                webUrl = "https://jamesclear.com/atomic-habits"
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Prepopulate Telegram feed if empty
+            val existingTg = repository.allTelegramMedia.first()
+            if (existingTg.isEmpty()) {
+                refreshTelegramFeed()
             }
         }
 
@@ -998,7 +1270,29 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private val _highlightedTabId = MutableStateFlow<Long?>(null)
+    val highlightedTabId: StateFlow<Long?> = _highlightedTabId.asStateFlow()
+
+    fun highlightTab(tabId: Long) {
+        viewModelScope.launch {
+            _highlightedTabId.value = tabId
+            kotlinx.coroutines.delay(3000)
+            _highlightedTabId.value = null
+        }
+    }
+
     fun addTab(url: String = "dineinstyle.com") {
+        val cleanUrl = if (url == "dineinstyle.com") url else AdBlocker.cleanTrackingParameters(url)
+        val duplicate = com.example.ui.BrowserFeaturesManager.checkDuplicateTab(cleanUrl, allTabs.value)
+        if (duplicate != null) {
+            com.example.ui.BrowserFeaturesManager.activeDuplicateRequest.value = 
+                com.example.ui.DuplicateTabRequest(cleanUrl, duplicate.id, duplicate.title)
+            return
+        }
+        addTabForce(cleanUrl)
+    }
+
+    fun addTabForce(url: String = "dineinstyle.com") {
         val cleanUrl = if (url == "dineinstyle.com") url else AdBlocker.cleanTrackingParameters(url)
         viewModelScope.launch {
             repository.deselectAllTabs()
@@ -1016,6 +1310,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun closeAllTabs() {
         viewModelScope.launch {
+            com.example.ui.TabThumbnailManager.clearAllThumbnails(getApplication())
             repository.clearAllTabs()
             createDefaultTab()
         }
@@ -1023,6 +1318,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun closeTab(tabId: Long) {
         viewModelScope.launch {
+            com.example.ui.TabThumbnailManager.clearTabThumbnails(getApplication(), tabId)
             val tabs = allTabs.value
             if (tabs.size <= 1) {
                 // If closing the last tab, clear everything and create a default
@@ -1048,6 +1344,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun selectTab(tabId: Long) {
+        val oldActiveId = _activeTabId.value
+        if (oldActiveId != null) {
+            val wv = com.example.ui.WebViewPool.getWebView(oldActiveId)
+            if (wv != null) {
+                com.example.ui.TabThumbnailManager.captureThumbnail(getApplication(), oldActiveId, wv)
+            }
+        }
         viewModelScope.launch {
             repository.selectTab(tabId)
             val tab = allTabs.value.find { it.id == tabId }
@@ -1957,12 +2260,31 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun toggleTabSwitcher() {
-        _isTabSwitcherVisible.value = !_isTabSwitcherVisible.value
+        val willBeVisible = !_isTabSwitcherVisible.value
+        if (willBeVisible) {
+            val activeId = _activeTabId.value
+            if (activeId != null) {
+                val wv = com.example.ui.WebViewPool.getWebView(activeId)
+                if (wv != null) {
+                    com.example.ui.TabThumbnailManager.captureThumbnail(getApplication(), activeId, wv)
+                }
+            }
+        }
+        _isTabSwitcherVisible.value = willBeVisible
         _isAdBlockerPopupVisible.value = false
         _isBookmarksHistorySheetVisible.value = false
     }
 
     fun setTabSwitcherVisible(visible: Boolean) {
+        if (visible) {
+            val activeId = _activeTabId.value
+            if (activeId != null) {
+                val wv = com.example.ui.WebViewPool.getWebView(activeId)
+                if (wv != null) {
+                    com.example.ui.TabThumbnailManager.captureThumbnail(getApplication(), activeId, wv)
+                }
+            }
+        }
         _isTabSwitcherVisible.value = visible
     }
 
@@ -2531,9 +2853,28 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun loadAdFilters(): List<com.example.data.AdFilterSubscription> {
         val jsonStr = prefs.getString("ad_filter_subscriptions", null) ?: return listOf(
-            com.example.data.AdFilterSubscription("easylist", "EasyList", "https://easylist-downloads.adblockplus.org/easylist.txt", "01/07/2026", "1.95 MB", true),
-            com.example.data.AdFilterSubscription("mobile_ads", "Mobile ads filter", "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", "01/07/2026", "611.43 KB", true),
-            com.example.data.AdFilterSubscription("oisd", "OISD Ads Filter", "https://small.oisd.nl", "01/07/2026", "824.12 KB", false)
+            com.example.data.AdFilterSubscription("easylist", "EasyList", "https://easylist-downloads.adblockplus.org/easylist.txt", "12/07/2026", "1.95 MB", true),
+            com.example.data.AdFilterSubscription("abpindo", "ABPindo", "https://raw.githubusercontent.com/easylist/easylist/master/abpindo/abpindo.txt", "12/07/2026", "112 KB", false),
+            com.example.data.AdFilterSubscription("albania", "Adblock List for Albania", "https://raw.githubusercontent.com/easylist/easylist/master/adblock_albania/adblock_albania.txt", "12/07/2026", "45 KB", false),
+            com.example.data.AdFilterSubscription("abpvn", "ABPVN", "https://raw.githubusercontent.com/abpvn/abpvn/master/abpvn.txt", "12/07/2026", "128 KB", false),
+            com.example.data.AdFilterSubscription("adguard_chinese", "AdGuard Chinese", "https://filters.adtidy.org/extension/chromium/filters/2.txt", "12/07/2026", "820 KB", false),
+            com.example.data.AdFilterSubscription("adguard_dutch", "AdGuard Dutch", "https://filters.adtidy.org/extension/chromium/filters/8.txt", "12/07/2026", "95 KB", false),
+            com.example.data.AdFilterSubscription("adguard_français", "AdGuard Français", "https://filters.adtidy.org/extension/chromium/filters/16.txt", "12/07/2026", "240 KB", false),
+            com.example.data.AdFilterSubscription("adguard_japanese", "AdGuard Japanese (日本用フィルタ)", "https://filters.adtidy.org/extension/chromium/filters/7.txt", "12/07/2026", "180 KB", false),
+            com.example.data.AdFilterSubscription("adguard_russian", "AdGuard Russian", "https://filters.adtidy.org/extension/chromium/filters/1.txt", "12/07/2026", "650 KB", false),
+            com.example.data.AdFilterSubscription("adguard_spanish_portuguese", "AdGuard Spanish/Portuguese", "https://filters.adtidy.org/extension/chromium/filters/9.txt", "12/07/2026", "310 KB", false),
+            com.example.data.AdFilterSubscription("adguard_turkish", "AdGuard Turkish", "https://filters.adtidy.org/extension/chromium/filters/13.txt", "12/07/2026", "110 KB", false),
+            com.example.data.AdFilterSubscription("adguard_url_tracking", "AdGuard URL Tracking Protection", "https://filters.adtidy.org/extension/chromium/filters/17.txt", "12/07/2026", "85 KB", true),
+            com.example.data.AdFilterSubscription("blocklist_antiporn", "Blocklist Project Anti-Porn", "https://raw.githubusercontent.com/blocklistproject/Lists/master/abuse.txt", "12/07/2026", "2.1 MB", false),
+            com.example.data.AdFilterSubscription("brave_filters", "Brave-specific filters", "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-lists/brave-social.txt", "12/07/2026", "145 KB", false),
+            com.example.data.AdFilterSubscription("quetta_android", "Quetta Android-specific filters", "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-lists/brave-android.txt", "12/07/2026", "98 KB", false),
+            com.example.data.AdFilterSubscription("bulgarian", "Bulgarian List", "https://raw.githubusercontent.com/easylist/easylist/master/bulgarian_list/bulgarian_list.txt", "12/07/2026", "64 KB", false),
+            com.example.data.AdFilterSubscription("bypass_paywalls", "Bypass Paywalls Clean Filters", "https://raw.githubusercontent.com/bpc-clone/bypass-paywalls-clean-filters/main/bpc-paywall-filter.txt", "12/07/2026", "150 KB", true),
+            com.example.data.AdFilterSubscription("cjk_annoyance", "CJK's Annoyance List", "https://raw.githubusercontent.com/cjx82630/cjx82630/master/cjx-annoyance.txt", "12/07/2026", "410 KB", false),
+            com.example.data.AdFilterSubscription("nordic_filters", "Dandelion Sprout's Nordic Filters", "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/NordicFilters.txt", "12/07/2026", "220 KB", false),
+            com.example.data.AdFilterSubscription("easyprivacy", "EasyPrivacy", "https://easylist-downloads.adblockplus.org/easyprivacy.txt", "12/07/2026", "1.12 MB", true),
+            com.example.data.AdFilterSubscription("malicious_blocklist", "Online Malicious URL Blocklist", "https://urlhaus.abuse.ch/downloads/text/", "12/07/2026", "950 KB", true),
+            com.example.data.AdFilterSubscription("youtube_distractions", "YouTube Mobile Distractions", "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/YouTubeMobileDistractions.txt", "12/07/2026", "35 KB", true)
         )
         val list = mutableListOf<com.example.data.AdFilterSubscription>()
         try {
@@ -2593,6 +2934,85 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun deleteAdFilter(id: String) {
         val updated = _adFilters.value.filter { it.id != id }
+        _adFilters.value = updated
+        saveAdFilters(updated)
+        syncAdBlockerFilters()
+    }
+
+    fun loadCustomFilterRules(): List<String> {
+        val jsonStr = prefs.getString("ad_custom_filter_rules", null)
+        if (jsonStr == null) {
+            // Prepopulate with elegant mock rules from screenshots
+            val defaultRules = listOf(
+                "sextb.net##.footer-links-content",
+                "sextb.net###footer > .container",
+                "sextb.net##a[href*=\"https://sextb.live/-nene-chan\"]",
+                "sextb.net##.tray-items-description",
+                "sextb.net##section.tray.all:nth-of-type(3)",
+                "sextb.net##.tray-content",
+                "sextb.net##section.tray.all.all:nth-of-type(3) > .tray-title",
+                "sextb.net##.btn-player.vip",
+                "123av.com##.border.t-border-border.pt-8.pb-8.mt-12",
+                "123av.com##.text-center.ay-12",
+                "123av.com##.comments-section.bg-white.py-8 > .max-w-gp.mx-auto.px-4.lg:px-6",
+                "123av.com##.data-safety.bg-white",
+                "123av.com##.section.ay-8.oth-of-type(1)"
+            )
+            saveCustomFilterRules(defaultRules)
+            return defaultRules
+        }
+        val list = mutableListOf<String>()
+        try {
+            val array = org.json.JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                list.add(array.getString(i))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveCustomFilterRules(rules: List<String>) {
+        _customFilterRules.value = rules
+        val array = org.json.JSONArray()
+        for (r in rules) {
+            array.put(r)
+        }
+        prefs.edit().putString("ad_custom_filter_rules", array.toString()).apply()
+    }
+
+    fun addCustomFilterRule(rule: String) {
+        if (rule.isBlank()) return
+        val updated = _customFilterRules.value + rule.trim()
+        saveCustomFilterRules(updated)
+    }
+
+    fun deleteCustomFilterRule(rule: String) {
+        val updated = _customFilterRules.value.filter { it != rule }
+        saveCustomFilterRules(updated)
+    }
+
+    fun getConfiguredAdBlockSites(): List<String> {
+        val allPrefs = prefs.all
+        return allPrefs.keys
+            .filter { it.startsWith("site_adblock_") && it != "site_adblock_initialized" }
+            .map { it.removePrefix("site_adblock_") }
+            .filter { it.isNotEmpty() }
+            .sorted()
+    }
+
+    fun resetPresetFiltersToDefault() {
+        prefs.edit().remove("ad_filter_subscriptions").apply()
+        _adFilters.value = loadAdFilters()
+        syncAdBlockerFilters()
+    }
+
+    fun refreshAdFilters(context: android.content.Context) {
+        val currentList = _adFilters.value
+        val updated = currentList.map {
+            it.copy(lastUpdated = "13/07/2026")
+        }
         _adFilters.value = updated
         saveAdFilters(updated)
         syncAdBlockerFilters()
@@ -3245,6 +3665,273 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             addTab()
             
             android.widget.Toast.makeText(context, "All tabs, cache and history cleared successfully!", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun setLongPressedImage(url: String?, title: String = "", pageUrl: String = "") {
+        _activeLongPressedImage.value = url
+        _longPressedImageTitle.value = title
+        _longPressedImagePageUrl.value = pageUrl
+    }
+
+    fun setVaultCollectionScreenVisible(visible: Boolean) {
+        _isVaultCollectionScreenVisible.value = visible
+    }
+
+    fun saveImageToVault(url: String, title: String, pageUrl: String, pageTitle: String, collectionName: String, extraData: String? = null) {
+        viewModelScope.launch {
+            repository.insertVaultItem(
+                com.example.data.VaultItem(
+                    title = if (title.isBlank()) "Saved Image" else title,
+                    url = url,
+                    pageUrl = pageUrl,
+                    pageTitle = if (pageTitle.isBlank()) "Saved Webpage" else pageTitle,
+                    type = "image",
+                    collectionName = collectionName,
+                    extraData = extraData
+                )
+            )
+        }
+    }
+
+    fun addManualVaultItem(title: String, url: String, type: String, collectionName: String, notes: String? = null, extraData: String? = null) {
+        viewModelScope.launch {
+            repository.insertVaultItem(
+                com.example.data.VaultItem(
+                    title = title,
+                    url = url,
+                    pageUrl = url,
+                    pageTitle = "Manual Entry",
+                    type = type,
+                    collectionName = collectionName,
+                    notes = notes,
+                    extraData = extraData
+                )
+            )
+        }
+    }
+
+    fun deleteVaultItem(id: Long) {
+        viewModelScope.launch {
+            repository.deleteVaultItemById(id)
+        }
+    }
+
+    // --- Category List & Saver (Listy Engine) Functions ---
+    fun addCategoryList(name: String, iconName: String, colorHex: String, type: String) {
+        viewModelScope.launch {
+            repository.insertCategoryList(
+                com.example.data.CategoryListEntity(
+                    name = name,
+                    iconName = iconName,
+                    colorHex = colorHex,
+                    type = type
+                )
+            )
+        }
+    }
+
+    fun deleteCategoryList(id: Long) {
+        viewModelScope.launch {
+            repository.deleteCategoryListById(id)
+        }
+    }
+
+    fun addListItem(
+        listId: Long,
+        title: String,
+        subtitle: String? = null,
+        description: String? = null,
+        imageUrl: String? = null,
+        rating: Float = 0f,
+        notes: String? = null,
+        isCompleted: Boolean = false,
+        releaseDate: String? = null,
+        webUrl: String? = null
+    ) {
+        viewModelScope.launch {
+            repository.insertListItem(
+                com.example.data.ListItemEntity(
+                    listId = listId,
+                    title = title,
+                    subtitle = subtitle,
+                    description = description,
+                    imageUrl = imageUrl,
+                    rating = rating,
+                    notes = notes,
+                    isCompleted = isCompleted,
+                    releaseDate = releaseDate,
+                    webUrl = webUrl
+                )
+            )
+        }
+    }
+
+    fun toggleListItemCompleted(item: com.example.data.ListItemEntity) {
+        viewModelScope.launch {
+            repository.updateListItem(item.copy(isCompleted = !item.isCompleted))
+        }
+    }
+
+    fun updateListItem(item: com.example.data.ListItemEntity) {
+        viewModelScope.launch {
+            repository.updateListItem(item)
+        }
+    }
+
+    fun deleteListItem(id: Long) {
+        viewModelScope.launch {
+            repository.deleteListItemById(id)
+        }
+    }
+
+    fun saveActiveTabToCategoryList(listId: Long) {
+        val currentTabs = allTabs.value
+        val activeId = activeTabId.value
+        val tab = currentTabs.find { it.id == activeId } ?: currentTabs.firstOrNull() ?: return
+        addListItem(
+            listId = listId,
+            title = if (tab.title.isBlank()) "Saved Tab" else tab.title,
+            subtitle = tab.url,
+            description = "Saved directly from current browser tab.",
+            imageUrl = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=600",
+            webUrl = tab.url
+        )
+    }
+
+    // --- Telegram Media Hub Functions ---
+    fun setTelegramConfig(botToken: String, channelName: String) {
+        _tgBotToken.value = botToken
+        _tgChannelName.value = channelName
+        prefs.edit()
+            .putString("tg_bot_token", botToken)
+            .putString("tg_channel_name", channelName)
+            .apply()
+        refreshTelegramFeed()
+    }
+
+    fun refreshTelegramFeed() {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val channel = _tgChannelName.value
+            val mediaList = com.example.network.TelegramEngine.fetchChannelFeed(channel)
+            repository.insertTelegramMediaList(mediaList)
+            _isTelegramLoading.value = false
+        }
+    }
+
+    fun uploadTelegramMedia(
+        mediaType: String,
+        caption: String,
+        fileUri: Uri?,
+        onResult: (Result<String>) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isTelegramLoading.value = true
+            val result = com.example.network.TelegramEngine.uploadToTelegramChannel(
+                botToken = _tgBotToken.value,
+                channelName = _tgChannelName.value,
+                mediaType = mediaType,
+                textOrCaption = caption,
+                fileUri = fileUri,
+                context = getApplication()
+            )
+            _isTelegramLoading.value = false
+            onResult(result)
+            if (result.isSuccess) {
+                refreshTelegramFeed()
+            }
+        }
+    }
+
+    // --- JSON Backup & Restore Engine ---
+    fun exportBackupJson(): String {
+        val json = org.json.JSONObject()
+        val listsArray = org.json.JSONArray()
+        allCategoryLists.value.forEach { list ->
+            listsArray.put(org.json.JSONObject().apply {
+                put("id", list.id)
+                put("name", list.name)
+                put("type", list.type)
+                put("colorHex", list.colorHex)
+                put("iconName", list.iconName)
+            })
+        }
+        json.put("category_lists", listsArray)
+
+        val itemsArray = org.json.JSONArray()
+        allListItems.value.forEach { item ->
+            itemsArray.put(org.json.JSONObject().apply {
+                put("listId", item.listId)
+                put("title", item.title)
+                put("subtitle", item.subtitle)
+                put("description", item.description)
+                put("imageUrl", item.imageUrl)
+                put("rating", item.rating.toDouble())
+                put("notes", item.notes)
+                put("isCompleted", item.isCompleted)
+                put("releaseDate", item.releaseDate)
+                put("webUrl", item.webUrl)
+            })
+        }
+        json.put("list_items", itemsArray)
+
+        val vaultArray = org.json.JSONArray()
+        allVaultItems.value.forEach { v ->
+            vaultArray.put(org.json.JSONObject().apply {
+                put("title", v.title)
+                put("url", v.url)
+                put("pageUrl", v.pageUrl)
+                put("pageTitle", v.pageTitle)
+                put("type", v.type)
+                put("collectionName", v.collectionName)
+                put("notes", v.notes)
+                put("extraData", v.extraData)
+            })
+        }
+        json.put("vault_items", vaultArray)
+
+        return json.toString(2)
+    }
+
+    fun importBackupJson(jsonStr: String): Boolean {
+        return try {
+            val json = org.json.JSONObject(jsonStr)
+            val listsArray = json.optJSONArray("category_lists")
+            if (listsArray != null) {
+                for (i in 0 until listsArray.length()) {
+                    val obj = listsArray.getJSONObject(i)
+                    addCategoryList(
+                        name = obj.optString("name", "Imported List"),
+                        iconName = obj.optString("iconName", "Movie"),
+                        colorHex = obj.optString("colorHex", "#3B82F6"),
+                        type = obj.optString("type", "General")
+                    )
+                }
+            }
+
+            val itemsArray = json.optJSONArray("list_items")
+            if (itemsArray != null) {
+                for (i in 0 until itemsArray.length()) {
+                    val obj = itemsArray.getJSONObject(i)
+                    addListItem(
+                        listId = obj.optLong("listId", 1L),
+                        title = obj.optString("title", "Imported Item"),
+                        subtitle = obj.optString("subtitle", null),
+                        description = obj.optString("description", null),
+                        imageUrl = obj.optString("imageUrl", null),
+                        rating = obj.optDouble("rating", 0.0).toFloat(),
+                        notes = obj.optString("notes", null),
+                        isCompleted = obj.optBoolean("isCompleted", false),
+                        releaseDate = obj.optString("releaseDate", null),
+                        webUrl = obj.optString("webUrl", null)
+                    )
+                }
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 

@@ -62,6 +62,10 @@ class MainActivity : ComponentActivity() {
             BrowserViewModel.Factory(application)
         )[BrowserViewModel::class.java]
 
+        com.example.ui.BrowserFeaturesManager.initPrefs(applicationContext)
+        com.example.ui.BrowserFeaturesManager.loadPermissions(applicationContext)
+        com.example.ui.BrowserFeaturesManager.loadDarkPrefs(applicationContext)
+
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
             MyApplicationTheme(themeMode = themeMode) {
@@ -82,6 +86,19 @@ class MainActivity : ComponentActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (::viewModel.isInitialized) {
             viewModel.setIsInPictureInPictureMode(isInPictureInPictureMode)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::viewModel.isInitialized) {
+            val activeId = viewModel.activeTabId.value
+            if (activeId != null) {
+                val wv = com.example.ui.WebViewPool.getWebView(activeId)
+                if (wv != null) {
+                    com.example.ui.TabThumbnailManager.captureThumbnail(applicationContext, activeId, wv)
+                }
+            }
         }
     }
 }
