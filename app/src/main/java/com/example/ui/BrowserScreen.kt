@@ -824,9 +824,9 @@ fun BrowserScreen(
                                         modifier = Modifier.fillMaxSize()
                                     )
 
-                                    // Skeleton loading instead of blank screen
+                                    // Initial loading skeleton before DOM rendering
                                     val loadingProgress = viewModel.loadingProgressMap.collectAsStateWithLifecycle().value[targetTab.id] ?: 100
-                                    if (loadingProgress < 100 && targetTab.url != "dineinstyle.com") {
+                                    if (loadingProgress in 1..9 && targetTab.url != "dineinstyle.com") {
                                         WebSkeletonLoader(
                                             isDark = isDarkTheme,
                                             modifier = Modifier.fillMaxSize()

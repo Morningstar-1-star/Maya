@@ -2499,8 +2499,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _isMediaStudioVisible.value = visible
     }
 
+    // In-memory cache for captured media URLs to prevent Room DB spam
+    private val capturedUrlsSet = java.util.Collections.synchronizedSet(HashSet<String>())
+
     fun captureMedia(url: String, type: String, pageTitle: String, pageUrl: String) {
         if (url.isBlank() || url.length < 12) return
+        if (!capturedUrlsSet.add(url)) return // Fast exit if already captured in memory!
+        if (capturedUrlsSet.size > 2000) {
+            capturedUrlsSet.clear()
+        }
         val lower = url.lowercase()
 
         // 1. Instantly drop if the host is blacklisted as an ad or tracker

@@ -162,6 +162,8 @@ object WebViewPool {
         webView.overScrollMode = WebView.OVER_SCROLL_ALWAYS
         // Force full hardware rendering acceleration for extremely smooth and responsive browsing
         webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        @Suppress("DEPRECATION")
+        webView.settings.setRenderPriority(WebSettings.RenderPriority.HIGH)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -953,22 +955,11 @@ object WebViewPool {
                             }
                         }
 
-                        // Scan images on load
+                        // Scan images on load (limited to top 15 for max smooth speed)
                         var imgs = document.getElementsByTagName('img');
-                        for (var i = 0; i < imgs.length; i++) {
+                        var maxImgs = Math.min(imgs.length, 15);
+                        for (var i = 0; i < maxImgs; i++) {
                             reportImage(imgs[i].src);
-                        }
-
-                        // Scan background images
-                        var all = document.getElementsByTagName('*');
-                        for (var i = 0; i < all.length; i++) {
-                            var bg = window.getComputedStyle(all[i]).backgroundImage;
-                            if (bg && bg !== 'none') {
-                                var match = bg.match(/url\((['"]?)(.*?)\1\)/);
-                                if (match && match[2]) {
-                                    reportImage(match[2]);
-                                }
-                            }
                         }
 
                         // Scan videos on load & inject corner overlay buttons
@@ -1330,18 +1321,11 @@ fun TabWebView(
         }
     }
 
-    // Capture tab visual preview screenshots dynamically and periodically
+    // Capture tab visual preview screenshots once when page finishes loading
     LaunchedEffect(tabId, progress) {
         if (progress == 100) {
-            kotlinx.coroutines.delay(1200)
+            kotlinx.coroutines.delay(1000)
             TabThumbnailManager.captureThumbnail(context, tabId, webView)
-            
-            while (true) {
-                kotlinx.coroutines.delay(2500)
-                if (viewModel.activeTabId.value == tabId && !viewModel.isTabSwitcherVisible.value) {
-                    TabThumbnailManager.captureThumbnail(context, tabId, webView)
-                }
-            }
         }
     }
 
