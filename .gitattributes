@@ -1,0 +1,8 @@
+# Auto-generated .gitattributes to prevent binary file corruption during git checkouts
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.keystore binary
+*.so binary
