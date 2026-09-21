@@ -35,13 +35,26 @@ jobs:
       - name: Verify and Repair Gradle Wrapper
         run: |
           chmod +x gradlew
-          # Test if the wrapper jar is intact
           if ! jar tf gradle/wrapper/gradle-wrapper.jar >/dev/null 2>&1; then
             echo "Corrupt or invalid gradle-wrapper.jar detected. Rebuilding wrapper with Gradle 9.3.1..."
             gradle wrapper --gradle-version 9.3.1 --distribution-type bin
           else
             echo "gradle-wrapper.jar verified successfully."
           fi
+
+      - name: Restore or Generate Debug Keystore
+        run: |
+          if [ ! -f "debug.keystore" ]; then
+            if [ -f "debug.keystore.base64" ]; then
+              echo "Restoring debug.keystore from debug.keystore.base64..."
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              echo "Generating debug.keystore via keytool..."
+              keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+          echo "Debug keystore status:"
+          ls -la debug.keystore
 
       - name: Prepare environment configuration
         run: |
