@@ -394,7 +394,10 @@ fun SplitScreenTabWebView(
                         BrowserFeaturesManager.updateSplitUrl(tabId, 1, url)
                     }
                     AndroidView(
-                        factory = { webView1 },
+                        factory = {
+                            (webView1.parent as? android.view.ViewGroup)?.removeView(webView1)
+                            webView1
+                        },
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 }
@@ -425,7 +428,10 @@ fun SplitScreenTabWebView(
                         BrowserFeaturesManager.updateSplitUrl(tabId, 2, url)
                     }
                     AndroidView(
-                        factory = { webView2 },
+                        factory = {
+                            (webView2.parent as? android.view.ViewGroup)?.removeView(webView2)
+                            webView2
+                        },
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 }
@@ -442,7 +448,10 @@ fun SplitScreenTabWebView(
                         BrowserFeaturesManager.updateSplitUrl(tabId, 1, url)
                     }
                     AndroidView(
-                        factory = { webView1 },
+                        factory = {
+                            (webView1.parent as? android.view.ViewGroup)?.removeView(webView1)
+                            webView1
+                        },
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 }
@@ -473,7 +482,10 @@ fun SplitScreenTabWebView(
                         BrowserFeaturesManager.updateSplitUrl(tabId, 2, url)
                     }
                     AndroidView(
-                        factory = { webView2 },
+                        factory = {
+                            (webView2.parent as? android.view.ViewGroup)?.removeView(webView2)
+                            webView2
+                        },
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 }

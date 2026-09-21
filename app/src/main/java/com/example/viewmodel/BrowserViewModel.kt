@@ -273,6 +273,31 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    suspend fun generatePageSummary(pageText: String): String {
+        return generatePageSummaryWithGemini(pageText)
+    }
+
+    suspend fun askGemini(prompt: String): String {
+        val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+            return "Please configure your GEMINI_API_KEY in the Secrets panel."
+        }
+        val request = com.example.data.GenerateContentRequest(
+            contents = listOf(com.example.data.Content(
+                parts = listOf(com.example.data.Part(text = prompt))
+            ))
+        )
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val response = com.example.data.RetrofitClient.service.generateContent(apiKey, request)
+                response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text 
+                    ?: "No reply from AI."
+            } catch (e: Exception) {
+                "Error: ${e.localizedMessage}"
+            }
+        }
+    }
+
     // Search Engine Configuration
     private val _searchEngineName = MutableStateFlow(prefs.getString("search_engine_name", "Google") ?: "Google")
     val searchEngineName: StateFlow<String> = _searchEngineName.asStateFlow()
@@ -407,7 +432,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _jsOptimisationAndSecurity = MutableStateFlow(prefs.getBoolean("js_optimisation_and_security", true))
     val jsOptimisationAndSecurity: StateFlow<Boolean> = _jsOptimisationAndSecurity.asStateFlow()
 
-    private val _performanceEngineEnabled = MutableStateFlow(prefs.getBoolean("performance_engine_enabled", false))
+    private val _performanceEngineEnabled = MutableStateFlow(prefs.getBoolean("performance_engine_enabled", true))
     val performanceEngineEnabled: StateFlow<Boolean> = _performanceEngineEnabled.asStateFlow()
 
     private val _v8JitMode = MutableStateFlow(prefs.getString("v8_jit_mode", "TurboFan (Full JIT)") ?: "TurboFan (Full JIT)")
@@ -504,8 +529,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _linkContextMenuText.value = null
     }
 
-    // Appearance & Accessibility States
-    private val _themeMode = MutableStateFlow(prefs.getString("theme_mode", "dark") ?: "dark")
+    // Appearance & Accessibility States - strictly Light and Dark AMOLED only
+    private val _themeMode = MutableStateFlow(
+        if (prefs.getString("theme_mode", "amoled") == "light") "light" else "amoled"
+    )
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
 
     private val _webZoomLevel = MutableStateFlow(prefs.getFloat("web_zoom_level", 1.0f))
@@ -701,6 +728,41 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun setAutoRefreshRuleVisible(visible: Boolean) {
         _isAutoRefreshRuleVisible.value = visible
+    }
+
+    private val _isProxyTorSheetVisible = MutableStateFlow(false)
+    val isProxyTorSheetVisible: StateFlow<Boolean> = _isProxyTorSheetVisible.asStateFlow()
+
+    fun setProxyTorSheetVisible(visible: Boolean) {
+        _isProxyTorSheetVisible.value = visible
+    }
+
+    private val _isAntiTrackingSheetVisible = MutableStateFlow(false)
+    val isAntiTrackingSheetVisible: StateFlow<Boolean> = _isAntiTrackingSheetVisible.asStateFlow()
+
+    fun setAntiTrackingSheetVisible(visible: Boolean) {
+        _isAntiTrackingSheetVisible.value = visible
+    }
+
+    private val _isOfflineArchivesSheetVisible = MutableStateFlow(false)
+    val isOfflineArchivesSheetVisible: StateFlow<Boolean> = _isOfflineArchivesSheetVisible.asStateFlow()
+
+    fun setOfflineArchivesSheetVisible(visible: Boolean) {
+        _isOfflineArchivesSheetVisible.value = visible
+    }
+
+    private val _isAiPageAssistantVisible = MutableStateFlow(false)
+    val isAiPageAssistantVisible: StateFlow<Boolean> = _isAiPageAssistantVisible.asStateFlow()
+
+    fun setAiPageAssistantVisible(visible: Boolean) {
+        _isAiPageAssistantVisible.value = visible
+    }
+
+    private val _pendingOnionUrl = MutableStateFlow<String?>(null)
+    val pendingOnionUrl: StateFlow<String?> = _pendingOnionUrl.asStateFlow()
+
+    fun setPendingOnionUrl(url: String?) {
+        _pendingOnionUrl.value = url
     }
 
     suspend fun getGeminiExplanation(text: String, queryType: String): String {
@@ -1005,167 +1067,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // Prepopulate default history entries if empty
+        // Clean initial state without mock history, fake downloads, or mock items
         viewModelScope.launch {
-            val existing = repository.allHistory.first()
-            if (existing.isEmpty()) {
-                repository.insertHistory(HistoryEntry(title = "WWE Official Website", url = "https://www.wwe.com"))
-                repository.insertHistory(HistoryEntry(title = "Wikipedia - World Wrestling Entertainment", url = "https://en.wikipedia.org/wiki/WWE"))
-                repository.insertHistory(HistoryEntry(title = "YouTube - WWE Official Channel", url = "https://www.youtube.com/user/WWEFanNation"))
-                repository.insertHistory(HistoryEntry(title = "Google Search - WWE Raw Results", url = "https://www.google.com/search?q=wwe+raw+results"))
-            }
-        }
-
-        // Prepopulate default downloads if empty
-        viewModelScope.launch {
-            val existing = repository.allDownloads.first()
-            if (existing.isEmpty()) {
-                repository.insertDownload(
-                    com.example.data.DownloadEntry(
-                        filename = "CapturedVideo_WWE_Highlights_Raw.mp4",
-                        url = "https://assets.mixkit.co/videos/preview/mixkit-introducing-apple-vision-pro-mock-48991-large.mp4",
-                        status = "Completed",
-                        size = "18.2 MB"
-                    )
-                )
-                repository.insertDownload(
-                    com.example.data.DownloadEntry(
-                        filename = "CapturedVideo_WrestleMania_Promo.mp4",
-                        url = "https://assets.mixkit.co/videos/preview/mixkit-android-14-promo-video-mock-48992-large.mp4",
-                        status = "Completed",
-                        size = "12.5 MB"
-                    )
-                )
-            }
-        }
-
-        // Prepopulate default vault items if empty
-        viewModelScope.launch {
-            val existing = repository.allVaultItems.first()
-            if (existing.isEmpty()) {
-                repository.insertVaultItem(
-                    com.example.data.VaultItem(
-                        title = "Ohtani's Hawaii Home",
-                        url = "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=600",
-                        pageUrl = "https://www.architecturaldigest.com",
-                        pageTitle = "Architectural Digest - Shohei Ohtani's Estate",
-                        type = "image",
-                        collectionName = "Shopping",
-                        extraData = "$20,000,000"
-                    )
-                )
-                repository.insertVaultItem(
-                    com.example.data.VaultItem(
-                        title = "Charmast Power Bank 20000mAh, 20W Fast Charging",
-                        url = "https://images.unsplash.com/photo-1609592424109-dd031e50f381?q=80&w=600",
-                        pageUrl = "https://www.amazon.com",
-                        pageTitle = "Amazon.com: Charmast Power Bank",
-                        type = "image",
-                        collectionName = "Shopping",
-                        extraData = "$29.99"
-                    )
-                )
-                repository.insertVaultItem(
-                    com.example.data.VaultItem(
-                        title = "Buy Wireless Headphones",
-                        url = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=600",
-                        pageUrl = "https://www.sony.com",
-                        pageTitle = "Sony Electronics - Wireless Noise Canceling Headphones",
-                        type = "image",
-                        collectionName = "Shopping",
-                        extraData = "$120.00"
-                    )
-                )
-                repository.insertVaultItem(
-                    com.example.data.VaultItem(
-                        title = "Modern Mediterranean Cuisine",
-                        url = "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?q=80&w=600",
-                        pageUrl = "https://www.bonappetit.com",
-                        pageTitle = "Mediterranean Summer Salads",
-                        type = "image",
-                        collectionName = "Food",
-                        extraData = "Recipe"
-                    )
-                )
-                repository.insertVaultItem(
-                    com.example.data.VaultItem(
-                        title = "Marathon Performance Running Shoes",
-                        url = "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=600",
-                        pageUrl = "https://www.nike.com",
-                        pageTitle = "Nike Running - Pegasus Elite",
-                        type = "image",
-                        collectionName = "Sports",
-                        extraData = "$150.00"
-                    )
-                )
-                repository.insertVaultItem(
-                    com.example.data.VaultItem(
-                        title = "Save 30% for Hawaii Trip",
-                        url = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=600",
-                        pageUrl = "https://www.tripadvisor.com",
-                        pageTitle = "Hawaii Travel Planning",
-                        type = "image",
-                        collectionName = "Goals",
-                        extraData = "Goal: 70%"
-                    )
-                )
-                repository.insertVaultItem(
-                    com.example.data.VaultItem(
-                        title = "Annual Developers Summit",
-                        url = "https://images.unsplash.com/photo-1540575467063-178a50c2df87?q=80&w=600",
-                        pageUrl = "https://www.google.com/events",
-                        pageTitle = "Google I/O developer hub",
-                        type = "image",
-                        collectionName = "Events",
-                        extraData = "Oct 10"
-                    )
-                )
-            }
-
-            // Prepopulate Category Lists if empty
+            // Category Lists initialization if empty
             val existingLists = repository.allCategoryLists.first()
             if (existingLists.isEmpty()) {
                 val defaultLists = listOf(
                     com.example.data.CategoryListEntity(name = "Movies & TV", iconName = "Movie", colorHex = "#3B82F6", type = "Movies"),
                     com.example.data.CategoryListEntity(name = "Books to Read", iconName = "Book", colorHex = "#10B981", type = "Books"),
                     com.example.data.CategoryListEntity(name = "Favorite Music", iconName = "Music", colorHex = "#8B5CF6", type = "Music"),
-                    com.example.data.CategoryListEntity(name = "Video Games", iconName = "Game", colorHex = "#EF4444", type = "Video Games"),
-                    com.example.data.CategoryListEntity(name = "Places & Restaurants", iconName = "Place", colorHex = "#F59E0B", type = "Places"),
+                    com.example.data.CategoryListEntity(name = "Places to Visit", iconName = "Place", colorHex = "#F59E0B", type = "Places"),
                     com.example.data.CategoryListEntity(name = "Saved Web Links", iconName = "Link", colorHex = "#06B6D4", type = "Web Links")
                 )
                 defaultLists.forEach { list ->
-                    val listId = repository.insertCategoryList(list)
-                    if (list.type == "Movies") {
-                        repository.insertListItem(
-                            com.example.data.ListItemEntity(
-                                listId = listId,
-                                title = "Interstellar",
-                                subtitle = "Sci-Fi / Adventure",
-                                description = "A team of explorers travel through a wormhole in space in an attempt to ensure humanity's survival.",
-                                imageUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=600",
-                                rating = 5.0f,
-                                notes = "Must watch in IMAX!",
-                                isCompleted = true,
-                                releaseDate = "2014",
-                                webUrl = "https://www.imdb.com/title/tt0816692/"
-                            )
-                        )
-                    } else if (list.type == "Books") {
-                        repository.insertListItem(
-                            com.example.data.ListItemEntity(
-                                listId = listId,
-                                title = "Atomic Habits",
-                                subtitle = "By James Clear",
-                                description = "An Easy & Proven Way to Build Good Habits & Break Bad Ones.",
-                                imageUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?q=80&w=600",
-                                rating = 4.8f,
-                                notes = "Great practical advice for daily routines.",
-                                isCompleted = false,
-                                releaseDate = "2018",
-                                webUrl = "https://jamesclear.com/atomic-habits"
-                            )
-                        )
-                    }
+                    repository.insertCategoryList(list)
                 }
             }
 
@@ -1209,6 +1124,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun updateUrlInput(url: String) {
         _currentUrlInput.value = url
+        if (url.length >= 4) {
+            com.example.network.SpeedBooster.preResolveUrl(url)
+        }
     }
 
     private suspend fun createDefaultTab() {
@@ -1351,6 +1269,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 com.example.ui.TabThumbnailManager.captureThumbnail(getApplication(), oldActiveId, wv)
             }
         }
+        com.example.ui.WebViewPool.onTabSelected(tabId)
+        com.example.ui.WebViewPool.trimInactiveMemory(tabId)
         viewModelScope.launch {
             repository.selectTab(tabId)
             val tab = allTabs.value.find { it.id == tabId }
@@ -1677,8 +1597,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun incrementBlockedAds(tabId: Long) {
+        incrementBlockedAdsBy(tabId, 1)
+    }
+
+    fun incrementBlockedAdsBy(tabId: Long, count: Int) {
+        if (count <= 0) return
         val currentCount = _blockedAdsMap.value[tabId] ?: 0
-        _blockedAdsMap.value = _blockedAdsMap.value.plus(tabId to currentCount + 1)
+        _blockedAdsMap.value = _blockedAdsMap.value.plus(tabId to (currentCount + count))
     }
 
     fun clearBlockedAds(tabId: Long) {
@@ -2147,8 +2072,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setThemeMode(mode: String) {
-        _themeMode.value = mode
-        prefs.edit().putString("theme_mode", mode).apply()
+        val cleanMode = if (mode == "light") "light" else "amoled"
+        _themeMode.value = cleanMode
+        prefs.edit().putString("theme_mode", cleanMode).apply()
     }
 
     fun setWebZoomLevel(level: Float) {

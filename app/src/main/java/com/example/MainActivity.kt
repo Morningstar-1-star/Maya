@@ -65,6 +65,17 @@ class MainActivity : ComponentActivity() {
         com.example.ui.BrowserFeaturesManager.initPrefs(applicationContext)
         com.example.ui.BrowserFeaturesManager.loadPermissions(applicationContext)
         com.example.ui.BrowserFeaturesManager.loadDarkPrefs(applicationContext)
+        com.example.network.ProxyTorManager.init(applicationContext)
+        com.example.data.PrivacyShieldManager.init(applicationContext)
+        com.example.data.OfflineArchiveManager.init(applicationContext)
+        com.example.network.SpeedBooster.init(applicationContext)
+
+        // Prewarm WebView engine on main thread to eliminate initial page launch latency
+        window.decorView.post {
+            try {
+                android.webkit.WebView(applicationContext).destroy()
+            } catch (ignored: Exception) {}
+        }
 
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
@@ -99,6 +110,14 @@ class MainActivity : ComponentActivity() {
                     com.example.ui.TabThumbnailManager.captureThumbnail(applicationContext, activeId, wv)
                 }
             }
+        }
+        com.example.ui.WebViewPool.onAppPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::viewModel.isInitialized) {
+            com.example.ui.WebViewPool.onAppResume(viewModel.activeTabId.value)
         }
     }
 }

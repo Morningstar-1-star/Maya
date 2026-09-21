@@ -141,141 +141,29 @@ fun ImmersiveStatusBar(
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
     val activeTab = remember(allTabs, activeTabId) { allTabs.find { it.id == activeTabId } }
     val currentUrl = activeTab?.url ?: ""
-    val isNativeHomepage = currentUrl.isEmpty() || currentUrl == "dineinstyle.com"
+    val isNativeHomepage = currentUrl.isEmpty() || currentUrl == "dineinstyle.com" || currentUrl == "about:blank" || currentUrl == "browser://newtab"
     
     val currentWebsiteThemeColor by viewModel.currentWebsiteThemeColor.collectAsStateWithLifecycle()
     
     val statusBarBgColor = when {
         isNativeHomepage -> {
-            if (isDarkTheme) Color(0xFF030712) else Color(0xFFF8FAFC)
+            if (isDarkTheme) Color.Black else Color.White
         }
         !currentWebsiteThemeColor.isNullOrBlank() -> {
-            parseHexColor(currentWebsiteThemeColor, if (isDarkTheme) Color(0xFF1E293B) else Color.White)
+            parseHexColor(currentWebsiteThemeColor, if (isDarkTheme) Color.Black else Color.White)
         }
         else -> {
-            if (isDarkTheme) Color(0xFF1E293B) else Color.White
+            if (isDarkTheme) Color.Black else Color.White
         }
     }
     
-    val isBgDark = isColorDark(statusBarBgColor)
-    val contentColor = if (isBgDark) Color.White else Color(0xFF1E293B)
-    
-    var currentTime by remember { mutableStateOf("") }
-    var currentDate by remember { mutableStateOf("") }
-    
-    LaunchedEffect(Unit) {
-        while (true) {
-            val cal = java.util.Calendar.getInstance()
-            currentTime = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(cal.time)
-            currentDate = java.text.SimpleDateFormat("EEE, MMM d", java.util.Locale.getDefault()).format(cal.time)
-            kotlinx.coroutines.delay(10000)
-        }
-    }
-    
-    Row(
+    // Smooth status bar window insets area matching webpage / start page theme
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .background(statusBarBgColor)
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = currentTime,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = contentColor
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = currentDate,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                color = contentColor.copy(alpha = 0.65f)
-            )
-        }
-        
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(5.dp)
-                    .background(contentColor.copy(alpha = 0.7f), CircleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .size(5.dp)
-                    .background(Color(0xFF38BDF8), CircleShape)
-            )
-            Text(
-                text = "MAYA",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.sp,
-                color = contentColor.copy(alpha = 0.4f)
-            )
-        }
-        
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = "5G",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Black,
-                color = contentColor
-            )
-            
-            Icon(
-                imageVector = Icons.Default.SignalCellularAlt,
-                contentDescription = "Signal strength",
-                tint = contentColor,
-                modifier = Modifier.size(14.dp)
-            )
-            
-            Icon(
-                imageVector = Icons.Default.Wifi,
-                contentDescription = "Wifi connection",
-                tint = contentColor,
-                modifier = Modifier.size(14.dp)
-            )
-            
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = "88%",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = contentColor
-                )
-                
-                Box(
-                    modifier = Modifier
-                        .width(18.dp)
-                        .height(10.dp)
-                        .border(1.dp, contentColor, RoundedCornerShape(2.dp))
-                        .padding(1.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.88f)
-                            .background(
-                                if (isBgDark) Color(0xFF4CAF50) else Color(0xFF2E7D32),
-                                RoundedCornerShape(1.dp)
-                            )
-                    )
-                }
-            }
-        }
-    }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -367,6 +255,12 @@ fun BrowserScreen(
     val isPermissionDashboardVisible by viewModel.isPermissionDashboardVisible.collectAsStateWithLifecycle()
     val isSiteDashboardVisible by viewModel.isSiteDashboardVisible.collectAsStateWithLifecycle()
     val isAutoRefreshRuleVisible by viewModel.isAutoRefreshRuleVisible.collectAsStateWithLifecycle()
+    val isProxyTorSheetVisible by viewModel.isProxyTorSheetVisible.collectAsStateWithLifecycle()
+    val isAntiTrackingSheetVisible by viewModel.isAntiTrackingSheetVisible.collectAsStateWithLifecycle()
+    val isOfflineArchivesSheetVisible by viewModel.isOfflineArchivesSheetVisible.collectAsStateWithLifecycle()
+    val isAiPageAssistantVisible by viewModel.isAiPageAssistantVisible.collectAsStateWithLifecycle()
+    val pendingOnionUrl by viewModel.pendingOnionUrl.collectAsStateWithLifecycle()
+    val activeMagnetRequest = com.example.data.MagnetTorrentManager.activeMagnetRequest.value
     val activeDuplicateRequest = com.example.ui.BrowserFeaturesManager.activeDuplicateRequest.value
     val menuPageZoom by viewModel.menuPageZoom.collectAsStateWithLifecycle()
     val menuFindOnPage by viewModel.menuFindOnPage.collectAsStateWithLifecycle()
@@ -730,7 +624,9 @@ fun BrowserScreen(
                         scaleY = backgroundScale
                         clip = true
                     }
-                    .blur(backgroundBlur)
+                    .let {
+                        if (backgroundBlur > 0.dp) it.blur(backgroundBlur) else it
+                    }
             ) {
                 AnimatedContent(
                     targetState = activeTabId,
@@ -747,7 +643,8 @@ fun BrowserScreen(
                 ) { targetTabId ->
                     val targetTab = allTabs.find { it.id == targetTabId }
                     if (targetTab != null) {
-                        if (targetTab.url == "dineinstyle.com") {
+                        val isStartPage = targetTab.url == "dineinstyle.com" || targetTab.url == "about:blank" || targetTab.url.isEmpty() || targetTab.url == "browser://newtab"
+                        if (isStartPage) {
                             val wallpaperUrl by viewModel.customWallpaperUrl.collectAsStateWithLifecycle()
                             val shortcuts by viewModel.allShortcuts.collectAsStateWithLifecycle()
                             val showNewsSection by viewModel.showNewsSection.collectAsStateWithLifecycle()
@@ -801,7 +698,8 @@ fun BrowserScreen(
                                 },
                                 onDeleteVaultItem = { id ->
                                     viewModel.deleteVaultItem(id)
-                                }
+                                },
+                                themeMode = themeMode
                             )
                         } else {
                             // Check if tab is sensitive (locked) and needs authentication
@@ -1249,6 +1147,64 @@ fun BrowserScreen(
                     onDismiss = { viewModel.setAutoRefreshRuleVisible(false) }
                 )
             }
+        }
+
+        if (isProxyTorSheetVisible) {
+            ProxyTorSheet(
+                onClose = { viewModel.setProxyTorSheetVisible(false) }
+            )
+        }
+
+        if (isAntiTrackingSheetVisible) {
+            AntiTrackingPrivacySheet(
+                onClose = { viewModel.setAntiTrackingSheetVisible(false) }
+            )
+        }
+
+        if (isOfflineArchivesSheetVisible) {
+            val activeWv = activeTabId?.let { WebViewPool.getOrCreateWebView(context, it, viewModel) }
+            OfflineArchivesSheet(
+                viewModel = viewModel,
+                activeWebView = activeWv,
+                currentTitle = activeTab?.title ?: "",
+                currentUrl = activeTab?.url ?: "",
+                onClose = { viewModel.setOfflineArchivesSheetVisible(false) }
+            )
+        }
+
+        if (isAiPageAssistantVisible) {
+            val activeWv = activeTabId?.let { WebViewPool.getOrCreateWebView(context, it, viewModel) }
+            AiPageAssistantSheet(
+                viewModel = viewModel,
+                activeWebView = activeWv,
+                currentTitle = activeTab?.title ?: "",
+                onClose = { viewModel.setAiPageAssistantVisible(false) }
+            )
+        }
+
+        pendingOnionUrl?.let { url ->
+            OnionGatewayDialog(
+                onionUrl = url,
+                onRouteGateway = { gatewayUrl ->
+                    viewModel.setPendingOnionUrl(null)
+                    viewModel.loadUrl(gatewayUrl)
+                },
+                onEnableTor = {
+                    viewModel.setPendingOnionUrl(null)
+                    com.example.network.ProxyTorManager.setProxyMode(com.example.network.ProxyMode.TOR_ORBOT)
+                    viewModel.loadUrl(url)
+                },
+                onDismiss = {
+                    viewModel.setPendingOnionUrl(null)
+                }
+            )
+        }
+
+        activeMagnetRequest?.let { magnet ->
+            MagnetTorrentSheet(
+                parsedMagnet = magnet,
+                onDismiss = { com.example.data.MagnetTorrentManager.activeMagnetRequest.value = null }
+            )
         }
 
         activeDuplicateRequest?.let { req ->
@@ -2560,28 +2516,27 @@ fun AddressBar(
 ) {
     val isDarkTheme = when (themeMode) {
         "light" -> false
-        "dark", "amoled" -> true
-        else -> androidx.compose.foundation.isSystemInDarkTheme()
+        else -> true
     }
     val barBgColor = if (chromeThemeActive) {
         Color(chromeThemeToolbarColor).copy(alpha = 0.92f)
     } else if (isDarkTheme) {
-        if (themeMode == "amoled") Color(0xFF09090B).copy(alpha = 0.90f) else Color(0xFF1E293B).copy(alpha = 0.92f)
+        Color.Black
     } else {
-        Color.White.copy(alpha = 0.92f)
+        Color.White
     }
     val contentColor = if (chromeThemeActive) Color(chromeThemeTextColor) else if (isDarkTheme) Color.White else Color.Black
-    val disabledColor = if (chromeThemeActive) Color(chromeThemeInactiveTextColor).copy(alpha = 0.4f) else if (isDarkTheme) Color(0xFF475569) else Color(0xFFCBD5E1)
-    val fieldBgColor = if (chromeThemeActive) Color(chromeThemeTextColor).copy(alpha = 0.08f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.04f)
+    val disabledColor = if (chromeThemeActive) Color(chromeThemeInactiveTextColor).copy(alpha = 0.4f) else if (isDarkTheme) Color(0xFF52525B) else Color(0xFFA1A1AA)
+    val fieldBgColor = if (chromeThemeActive) Color(chromeThemeTextColor).copy(alpha = 0.08f) else if (isDarkTheme) Color(0xFF18181B) else Color(0xFFF4F4F5)
     val textOrUrlColor = if (url.isEmpty() || url == "dineinstyle.com") Color.Gray else contentColor
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 12.dp,
+                elevation = 6.dp,
                 shape = RoundedCornerShape(24.dp),
-                spotColor = if (isDarkTheme) Color.Black else Color.Black.copy(alpha = 0.15f)
+                spotColor = Color.Black.copy(alpha = 0.2f)
             ),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
@@ -2589,7 +2544,7 @@ fun AddressBar(
         ),
         border = BorderStroke(
             width = 1.dp,
-            color = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+            color = if (isDarkTheme) Color(0xFF27272A) else Color(0xFFE4E4E7)
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -2600,7 +2555,7 @@ fun AddressBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp),
-                    color = Color(0xFF0284C7), // Sleeker premium blue loading indicator
+                    color = if (isDarkTheme) Color.White else Color.Black,
                     trackColor = Color.Transparent
                 )
             } else {
@@ -2673,20 +2628,19 @@ fun AddressBar(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .padding(end = 6.dp)
-                                .background(Color(0xFF0284C7).copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                                .border(1.dp, Color(0xFF0284C7).copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .background(if (isDarkTheme) Color(0xFF27272A) else Color(0xFFE4E4E7), RoundedCornerShape(12.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AccessTime,
                                 contentDescription = "Read Time",
-                                tint = Color(0xFF38BDF8),
+                                tint = contentColor,
                                 modifier = Modifier.size(10.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = "$activeTabReadTime min",
-                                color = Color(0xFF38BDF8),
+                                color = contentColor,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -2698,14 +2652,14 @@ fun AddressBar(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFFEF4444))
+                                .background(contentColor)
                                 .clickable { onUpdatesClick() },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.NotificationsActive,
                                 contentDescription = "Website Updates Available",
-                                tint = Color.White,
+                                tint = if (isDarkTheme) Color.Black else Color.White,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -2727,14 +2681,14 @@ fun AddressBar(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    // Shield / Ad Blocker status indicator (Emerald/Teal glowing badge when active)
+                    // Shield / Ad Blocker status indicator
                     Box(
                         modifier = Modifier
                             .size(24.dp)
                             .clip(CircleShape)
                             .background(
                                 if (isAdBlockerActive) {
-                                    if (blockedAdsCount > 0) Color(0xFF0EA5E9) else Color(0xFF10B981)
+                                    contentColor
                                 } else {
                                     contentColor.copy(alpha = 0.15f)
                                 }
@@ -2746,7 +2700,7 @@ fun AddressBar(
                         Icon(
                             imageVector = if (isAdBlockerActive) Icons.Default.ElectricBolt else Icons.Default.Shield,
                             contentDescription = "Ad Blocker Status",
-                            tint = if (isAdBlockerActive) Color.White else contentColor.copy(alpha = 0.5f),
+                            tint = if (isAdBlockerActive) (if (isDarkTheme) Color.Black else Color.White) else contentColor.copy(alpha = 0.5f),
                             modifier = Modifier.size(13.dp)
                         )
                     }
@@ -2998,7 +2952,7 @@ fun BrowserOptionsMenu(
                                 Icon(
                                     imageVector = Icons.Default.Shield,
                                     contentDescription = "Shield Settings",
-                                    tint = if (viewModel.adBlockerOn.collectAsStateWithLifecycle().value) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (viewModel.adBlockerOn.collectAsStateWithLifecycle().value) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -3291,6 +3245,81 @@ fun BrowserOptionsMenu(
                                 }
                             )
 
+                            // Split Screen (Dual Tab View)
+                            val isSplitActive = com.example.ui.BrowserFeaturesManager.splitTabStates[activeTab?.id ?: 0]?.isSplit == true
+                            PageActionItem(
+                                title = if (isSplitActive) "Exit Split Screen" else "Split Screen (Dual Tab)",
+                                icon = Icons.Default.Layers,
+                                animType = IconAnimType.BOUNCE,
+                                onClick = {
+                                    onDismissRequest()
+                                    val activeId = activeTab?.id
+                                    if (activeId != null) {
+                                        com.example.ui.BrowserFeaturesManager.toggleSplitScreen(activeId, activeTab.url)
+                                    }
+                                }
+                            )
+
+                            // Smart Reader & TTS Speech Narration
+                            val isReaderActiveNow = com.example.ui.BrowserFeaturesManager.readerActiveForTab[activeTab?.id ?: 0] == true
+                            PageActionItem(
+                                title = if (isReaderActiveNow) "Exit Smart Reader" else "Smart Reader & TTS Voice",
+                                icon = Icons.Default.VolumeUp,
+                                animType = IconAnimType.PULSE,
+                                onClick = {
+                                    onDismissRequest()
+                                    val activeId = activeTab?.id
+                                    if (activeId != null) {
+                                        val wv = WebViewPool.getOrCreateWebView(context, activeId, viewModel)
+                                        com.example.ui.BrowserFeaturesManager.toggleReaderMode(activeId, wv)
+                                    }
+                                }
+                            )
+
+                            // AI Web Intelligence (Summary & Page Q&A)
+                            PageActionItem(
+                                title = "AI Web Intelligence",
+                                icon = Icons.Default.AutoAwesome,
+                                animType = IconAnimType.PULSE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setAiPageAssistantVisible(true)
+                                }
+                            )
+
+                            // Tor & Proxy Center
+                            PageActionItem(
+                                title = "Tor & SOCKS5 Proxy",
+                                icon = Icons.Default.Dns,
+                                animType = IconAnimType.BOUNCE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setProxyTorSheetVisible(true)
+                                }
+                            )
+
+                            // Privacy & Anti-Tracking Shield
+                            PageActionItem(
+                                title = "Privacy & Anti-Tracking",
+                                icon = Icons.Default.Shield,
+                                animType = IconAnimType.PULSE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setAntiTrackingSheetVisible(true)
+                                }
+                            )
+
+                            // Save Page Offline (.mhtml)
+                            PageActionItem(
+                                title = "Save Page Offline (.mhtml)",
+                                icon = Icons.Default.Book,
+                                animType = IconAnimType.BOUNCE,
+                                onClick = {
+                                    onDismissRequest()
+                                    viewModel.setOfflineArchivesSheetVisible(true)
+                                }
+                            )
+
                             // 7. Unblock Copy
                             PageActionItem(
                                 title = if (copyUnblockActive) "Unblock Copy: ON" else "Unblock Copy: OFF",
@@ -3470,17 +3499,28 @@ fun PrivacyGuardSheet(
         }
     }
 
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val isDark = themeMode != "light"
+    val sheetBg = if (isDark) Color.Black else Color.White
+    val cardBg = if (isDark) Color(0xFF18181B) else Color(0xFFF4F4F5)
+    val textPrimary = if (isDark) Color.White else Color.Black
+    val textSecondary = if (isDark) Color(0xFFA1A1AA) else Color(0xFF71717A)
+    val cardBorder = if (isDark) Color(0xFF27272A) else Color(0xFFE4E4E7)
+    val dividerColor = if (isDark) Color(0xFF27272A) else Color(0xFFE4E4E7)
+    val accentColor = if (isDark) Color.White else Color.Black
+
     var currentScreen by remember { mutableStateOf(PrivacyGuardScreen.MAIN) }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight(0.85f)
-            .shadow(24.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
+            .shadow(16.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF0F172A)
-        )
+            containerColor = sheetBg
+        ),
+        border = BorderStroke(1.dp, cardBorder)
     ) {
         Column(
             modifier = Modifier
@@ -3492,7 +3532,7 @@ fun PrivacyGuardSheet(
                     .width(40.dp)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White.copy(alpha = 0.2f))
+                    .background(textSecondary.copy(alpha = 0.3f))
                     .align(Alignment.CenterHorizontally)
             )
 
@@ -3516,12 +3556,12 @@ fun PrivacyGuardSheet(
                     },
                     modifier = Modifier
                         .size(36.dp)
-                        .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                        .background(cardBg, CircleShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowLeft,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = textPrimary
                     )
                 }
 
@@ -3548,14 +3588,14 @@ fun PrivacyGuardSheet(
                         text = headerTitle,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = textPrimary,
                         letterSpacing = 0.5.sp
                     )
                     Text(
                         text = headerSubtitle,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.6f),
+                        color = textSecondary,
                         letterSpacing = 0.3.sp
                     )
                 }
@@ -3567,12 +3607,12 @@ fun PrivacyGuardSheet(
                             onClick = { currentScreen = PrivacyGuardScreen.CONTENT_FILTERS },
                             modifier = Modifier
                                 .size(36.dp)
-                                .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                                .background(cardBg, CircleShape)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Settings",
-                                tint = Color.White
+                                tint = textPrimary
                             )
                         }
                     }
@@ -3584,12 +3624,12 @@ fun PrivacyGuardSheet(
                             },
                             modifier = Modifier
                                 .size(36.dp)
-                                .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                                .background(cardBg, CircleShape)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = "Refresh",
-                                tint = Color.White
+                                tint = textPrimary
                             )
                         }
                     }
@@ -3611,9 +3651,10 @@ fun PrivacyGuardSheet(
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = Color(0xFF1E293B)
+                                    containerColor = cardBg
                                 ),
-                                shape = RoundedCornerShape(16.dp)
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -3624,13 +3665,13 @@ fun PrivacyGuardSheet(
                                     Box(
                                         modifier = Modifier
                                             .size(48.dp)
-                                            .background(Color(0xFF10B981).copy(alpha = 0.15f), CircleShape),
+                                            .background(accentColor.copy(alpha = 0.12f), CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Shield,
                                             contentDescription = null,
-                                            tint = Color(0xFF10B981),
+                                            tint = accentColor,
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }
@@ -3639,10 +3680,10 @@ fun PrivacyGuardSheet(
 
                                     Column {
                                         Text(
-                                            text = "Quetta has blocked $blockedOnThisSite ads and trackers for you so far.",
+                                            text = "Maya has blocked $blockedOnThisSite ads and trackers for you so far.",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White
+                                            color = textPrimary
                                         )
                                     }
                                 }
@@ -3655,9 +3696,10 @@ fun PrivacyGuardSheet(
                                     .fillMaxWidth()
                                     .clickable { currentScreen = PrivacyGuardScreen.ADS_TRACKERS_BLOCKER },
                                 colors = CardDefaults.cardColors(
-                                    containerColor = Color(0xFF1E293B)
+                                    containerColor = cardBg
                                 ),
-                                shape = RoundedCornerShape(16.dp)
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -3674,13 +3716,13 @@ fun PrivacyGuardSheet(
                                                     text = "Ads & Trackers Blocker",
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color.White
+                                                    color = textPrimary
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Icon(
                                                     imageVector = Icons.Default.KeyboardArrowRight,
                                                     contentDescription = null,
-                                                    tint = Color.White.copy(alpha = 0.4f),
+                                                    tint = textSecondary,
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                             }
@@ -3688,7 +3730,7 @@ fun PrivacyGuardSheet(
                                             Text(
                                                 text = "Ads and pop-ups blocked & Trackers prevented from profiling you.",
                                                 fontSize = 12.sp,
-                                                color = Color.White.copy(alpha = 0.6f)
+                                                color = textSecondary
                                             )
                                         }
 
@@ -3696,22 +3738,24 @@ fun PrivacyGuardSheet(
                                             checked = adBlockerOn,
                                             onCheckedChange = { viewModel.toggleAdBlocker() },
                                             colors = SwitchDefaults.colors(
-                                                checkedThumbColor = Color(0xFF10B981),
-                                                checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
+                                                checkedThumbColor = accentColor,
+                                                checkedTrackColor = accentColor.copy(alpha = 0.4f),
+                                                uncheckedThumbColor = textSecondary.copy(alpha = 0.4f),
+                                                uncheckedTrackColor = textSecondary.copy(alpha = 0.15f)
                                             )
                                         )
                                     }
 
                                     Spacer(modifier = Modifier.height(12.dp))
 
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                    HorizontalDivider(color = dividerColor)
 
                                     TextButton(
                                         onClick = {
                                             Toast.makeText(context, "Site reported successfully! Thank you.", Toast.LENGTH_SHORT).show()
                                         },
                                         modifier = Modifier.align(Alignment.Start),
-                                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF38BDF8))
+                                        colors = ButtonDefaults.textButtonColors(contentColor = textPrimary)
                                     ) {
                                         Text(
                                             text = "Report Site with ads",
@@ -3728,7 +3772,7 @@ fun PrivacyGuardSheet(
                                 text = "PRIVACY CONTROL",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.5f),
+                                color = textSecondary,
                                 letterSpacing = 1.sp
                             )
 
@@ -3737,46 +3781,55 @@ fun PrivacyGuardSheet(
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = Color(0xFF1E293B)
+                                    containerColor = cardBg
                                 ),
-                                shape = RoundedCornerShape(20.dp)
+                                shape = RoundedCornerShape(20.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Column(modifier = Modifier.fillMaxWidth()) {
                                     PrivacyControlRow(
                                         title = "Hide Distracting Items",
                                         icon = Icons.Default.Block,
                                         checked = hideDistractingItems,
-                                        onCheckedChange = { viewModel.setHideDistractingItems(it) }
+                                        onCheckedChange = { viewModel.setHideDistractingItems(it) },
+                                        textColor = textPrimary,
+                                        accentColor = accentColor
                                     )
 
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                    HorizontalDivider(color = dividerColor)
 
                                     PrivacyControlRow(
                                         title = "Always Use HTTPS",
                                         icon = Icons.Default.Lock,
                                         checked = alwaysUseHttps,
-                                        onCheckedChange = { viewModel.setAlwaysUseHttps(it) }
+                                        onCheckedChange = { viewModel.setAlwaysUseHttps(it) },
+                                        textColor = textPrimary,
+                                        accentColor = accentColor
                                     )
 
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                    HorizontalDivider(color = dividerColor)
 
                                     PrivacyControlRow(
                                         title = "Remove Fingerprint",
                                         icon = Icons.Default.Fingerprint,
                                         checked = removeFingerprint,
-                                        onCheckedChange = { viewModel.setRemoveFingerprint(it) }
+                                        onCheckedChange = { viewModel.setRemoveFingerprint(it) },
+                                        textColor = textPrimary,
+                                        accentColor = accentColor
                                     )
 
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                    HorizontalDivider(color = dividerColor)
 
                                     PrivacyControlRow(
                                         title = "Script Control",
                                         icon = Icons.Default.Code,
                                         checked = scriptControlEnabled,
-                                        onCheckedChange = { viewModel.setScriptControlEnabled(it) }
+                                        onCheckedChange = { viewModel.setScriptControlEnabled(it) },
+                                        textColor = textPrimary,
+                                        accentColor = accentColor
                                     )
 
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                    HorizontalDivider(color = dividerColor)
 
                                     PrivacyControlRow(
                                         title = "Cookie Management",
@@ -3784,16 +3837,20 @@ fun PrivacyGuardSheet(
                                         checked = cookieManagementMode == "block_third_party",
                                         onCheckedChange = {
                                             viewModel.setCookieManagementMode(if (it) "block_third_party" else "allow_all")
-                                        }
+                                        },
+                                        textColor = textPrimary,
+                                        accentColor = accentColor
                                     )
 
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                    HorizontalDivider(color = dividerColor)
 
                                     PrivacyControlRow(
                                         title = "Stop App Redirects",
                                         icon = Icons.Default.Smartphone,
                                         checked = stopAppRedirects,
-                                        onCheckedChange = { viewModel.setStopAppRedirects(it) }
+                                        onCheckedChange = { viewModel.setStopAppRedirects(it) },
+                                        textColor = textPrimary,
+                                        accentColor = accentColor
                                     )
                                 }
                             }
@@ -3812,15 +3869,16 @@ fun PrivacyGuardSheet(
                                 text = "SAVED DOMAINS",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.5f),
+                                color = textSecondary,
                                 letterSpacing = 1.sp
                             )
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Column(modifier = Modifier.fillMaxWidth()) {
                                     val sites = viewModel.getConfiguredAdBlockSites()
@@ -3828,7 +3886,7 @@ fun PrivacyGuardSheet(
                                         Text(
                                             text = "No saved site preferences.",
                                             fontSize = 13.sp,
-                                            color = Color.White.copy(alpha = 0.5f),
+                                            color = textSecondary,
                                             modifier = Modifier.padding(16.dp)
                                         )
                                     } else {
@@ -3845,25 +3903,27 @@ fun PrivacyGuardSheet(
                                                     text = site,
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.Medium,
-                                                    color = Color.White,
+                                                    color = textPrimary,
                                                     modifier = Modifier.weight(1f)
                                                 )
                                                 Switch(
                                                     checked = siteBlockEnabled,
                                                     onCheckedChange = { viewModel.setSiteAdBlock(site, it) },
                                                     colors = SwitchDefaults.colors(
-                                                        checkedThumbColor = Color(0xFF10B981),
-                                                        checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
+                                                        checkedThumbColor = accentColor,
+                                                        checkedTrackColor = accentColor.copy(alpha = 0.4f),
+                                                        uncheckedThumbColor = textSecondary.copy(alpha = 0.4f),
+                                                        uncheckedTrackColor = textSecondary.copy(alpha = 0.15f)
                                                     )
                                                 )
                                             }
                                             if (index < Math.min(sites.size, 5) - 1) {
-                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                                HorizontalDivider(color = dividerColor)
                                             }
                                         }
                                     }
 
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                                    HorizontalDivider(color = dividerColor)
 
                                     Row(
                                         modifier = Modifier
@@ -3877,12 +3937,12 @@ fun PrivacyGuardSheet(
                                             text = "Manage Saved Site Options...",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF38BDF8)
+                                            color = textPrimary
                                         )
                                         Icon(
                                             imageVector = Icons.Default.KeyboardArrowRight,
                                             contentDescription = null,
-                                            tint = Color(0xFF38BDF8),
+                                            tint = textPrimary,
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
@@ -3895,15 +3955,16 @@ fun PrivacyGuardSheet(
                                 text = "OTHER WEBSITES",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.5f),
+                                color = textSecondary,
                                 letterSpacing = 1.sp
                             )
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -3916,15 +3977,17 @@ fun PrivacyGuardSheet(
                                             text = "Block on all other websites",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color.White
+                                            color = textPrimary
                                         )
                                     }
                                     Switch(
                                         checked = adBlockerOn,
                                         onCheckedChange = { viewModel.toggleAdBlocker() },
                                         colors = SwitchDefaults.colors(
-                                            checkedThumbColor = Color(0xFF10B981),
-                                            checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.4f)
+                                            checkedThumbColor = accentColor,
+                                            checkedTrackColor = accentColor.copy(alpha = 0.4f),
+                                            uncheckedThumbColor = textSecondary.copy(alpha = 0.4f),
+                                            uncheckedTrackColor = textSecondary.copy(alpha = 0.15f)
                                         )
                                     )
                                 }
@@ -3934,13 +3997,14 @@ fun PrivacyGuardSheet(
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
-                                shape = RoundedCornerShape(12.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Text(
                                     text = "Ads & Trackers Blocker - Blocks image ads, script ads, and pop-ups while preventing data trackers from collecting your personal information, helping you browse faster, safer, and with less data usage.",
                                     fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = textSecondary,
                                     lineHeight = 16.sp,
                                     modifier = Modifier.padding(16.dp)
                                 )
@@ -3956,15 +4020,16 @@ fun PrivacyGuardSheet(
                         ) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 val sites = viewModel.getConfiguredAdBlockSites()
                                 if (sites.isEmpty()) {
                                     Text(
                                         text = "No saved sites.",
                                         fontSize = 14.sp,
-                                        color = Color.White.copy(alpha = 0.5f),
+                                        color = textSecondary,
                                         modifier = Modifier.padding(16.dp)
                                     )
                                 } else {
@@ -3990,12 +4055,12 @@ fun PrivacyGuardSheet(
                                                         text = site,
                                                         fontSize = 14.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = Color.White
+                                                        color = textPrimary
                                                     )
                                                     Text(
                                                         text = "$blockedCount items have been marked",
                                                         fontSize = 11.sp,
-                                                        color = Color.White.copy(alpha = 0.5f)
+                                                        color = textSecondary
                                                     )
                                                 }
                                                 IconButton(
@@ -4007,12 +4072,12 @@ fun PrivacyGuardSheet(
                                                     Icon(
                                                         imageVector = Icons.Default.Delete,
                                                         contentDescription = "Delete",
-                                                        tint = Color.Red.copy(alpha = 0.8f)
+                                                        tint = textSecondary
                                                     )
                                                 }
                                             }
                                             if (index < sites.size - 1) {
-                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                                HorizontalDivider(color = dividerColor)
                                             }
                                         }
                                     }
@@ -4025,7 +4090,7 @@ fun PrivacyGuardSheet(
                                 text = "Be sure to use the Content Filter Syntax",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Red.copy(alpha = 0.8f),
+                                color = textSecondary,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { currentScreen = PrivacyGuardScreen.CUSTOM_FILTERS_LIST }
@@ -4052,15 +4117,16 @@ fun PrivacyGuardSheet(
                                 text = "CUSTOM FILTER LISTS",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.5f),
+                                color = textSecondary,
                                 letterSpacing = 1.sp
                             )
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Column(modifier = Modifier.fillMaxWidth()) {
                                     Row(
@@ -4073,7 +4139,7 @@ fun PrivacyGuardSheet(
                                         Icon(
                                             imageVector = Icons.Default.Add,
                                             contentDescription = null,
-                                            tint = Color(0xFF38BDF8),
+                                            tint = textPrimary,
                                             modifier = Modifier.size(20.dp)
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
@@ -4081,14 +4147,14 @@ fun PrivacyGuardSheet(
                                             text = "Add filter via URL",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF38BDF8)
+                                            color = textPrimary
                                         )
                                     }
 
                                     // Display any custom filter subscriptions
                                     val customs = adFilters.filter { !defaultIds.contains(it.id) }
                                     if (customs.isNotEmpty()) {
-                                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                        HorizontalDivider(color = dividerColor)
                                         customs.forEachIndexed { idx, sub ->
                                             Row(
                                                 modifier = Modifier
@@ -4097,15 +4163,15 @@ fun PrivacyGuardSheet(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Column(modifier = Modifier.weight(1f)) {
-                                                    Text(sub.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                                    Text(sub.url, fontSize = 11.sp, color = Color.White.copy(alpha = 0.5f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    Text(sub.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                    Text(sub.url, fontSize = 11.sp, color = textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                 }
                                                 IconButton(onClick = { viewModel.deleteAdFilter(sub.id) }) {
-                                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.8f))
+                                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = textSecondary)
                                                 }
                                             }
                                             if (idx < customs.size - 1) {
-                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                                HorizontalDivider(color = dividerColor)
                                             }
                                         }
                                     }
@@ -4119,15 +4185,16 @@ fun PrivacyGuardSheet(
                                 text = "CUSTOM FILTERS",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.5f),
+                                color = textSecondary,
                                 letterSpacing = 1.sp
                             )
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -4141,12 +4208,12 @@ fun PrivacyGuardSheet(
                                         text = "Create custom filters",
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Color.White
+                                        color = textPrimary
                                     )
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowRight,
                                         contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.4f),
+                                        tint = textSecondary,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -4164,14 +4231,14 @@ fun PrivacyGuardSheet(
                                     text = "PRESET FILTER LISTS",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.5f),
+                                    color = textSecondary,
                                     letterSpacing = 1.sp
                                 )
                                 Text(
                                     text = "Reset",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF38BDF8),
+                                    color = textPrimary,
                                     modifier = Modifier
                                         .clickable {
                                             viewModel.resetPresetFiltersToDefault()
@@ -4184,8 +4251,9 @@ fun PrivacyGuardSheet(
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(16.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 Column(modifier = Modifier.fillMaxWidth()) {
                                     val presets = adFilters.filter { defaultIds.contains(it.id) }
@@ -4202,7 +4270,7 @@ fun PrivacyGuardSheet(
                                                     text = sub.name,
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color.White
+                                                    color = textPrimary
                                                 )
                                                 Spacer(modifier = Modifier.height(2.dp))
                                                 val desc = when (sub.id) {
@@ -4235,14 +4303,14 @@ fun PrivacyGuardSheet(
                                                 Text(
                                                     text = desc,
                                                     fontSize = 11.sp,
-                                                    color = Color.White.copy(alpha = 0.5f),
+                                                    color = textSecondary,
                                                     lineHeight = 14.sp
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text(
                                                     text = "Last updated: ${sub.lastUpdated}  •  Size: ${sub.size}",
                                                     fontSize = 10.sp,
-                                                    color = Color.White.copy(alpha = 0.4f)
+                                                    color = textSecondary.copy(alpha = 0.8f)
                                                 )
                                             }
                                             Spacer(modifier = Modifier.width(12.dp))
@@ -4250,13 +4318,15 @@ fun PrivacyGuardSheet(
                                                 checked = sub.enabled,
                                                 onCheckedChange = { viewModel.toggleAdFilter(sub.id) },
                                                 colors = SwitchDefaults.colors(
-                                                    checkedThumbColor = Color(0xFF38BDF8),
-                                                    checkedTrackColor = Color(0xFF38BDF8).copy(alpha = 0.4f)
+                                                    checkedThumbColor = accentColor,
+                                                    checkedTrackColor = accentColor.copy(alpha = 0.4f),
+                                                    uncheckedThumbColor = textSecondary.copy(alpha = 0.4f),
+                                                    uncheckedTrackColor = textSecondary.copy(alpha = 0.15f)
                                                 )
                                             )
                                         }
                                         if (index < presets.size - 1) {
-                                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                            HorizontalDivider(color = dividerColor)
                                         }
                                     }
                                 }
@@ -4281,12 +4351,12 @@ fun PrivacyGuardSheet(
                                 placeholder = { Text("Enter filter list name") },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF38BDF8),
-                                    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                                    focusedLabelColor = Color(0xFF38BDF8),
-                                    unfocusedLabelColor = Color.White.copy(alpha = 0.4f),
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
+                                    focusedBorderColor = accentColor,
+                                    unfocusedBorderColor = cardBorder,
+                                    focusedLabelColor = accentColor,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary
                                 )
                             )
 
@@ -4302,7 +4372,7 @@ fun PrivacyGuardSheet(
                                         Icon(
                                             imageVector = Icons.Default.Info,
                                             contentDescription = "Help",
-                                            tint = Color.White.copy(alpha = 0.4f),
+                                            tint = textSecondary,
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }
@@ -4310,12 +4380,12 @@ fun PrivacyGuardSheet(
                                 placeholder = { Text("Enter filter list URL") },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF38BDF8),
-                                    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                                    focusedLabelColor = Color(0xFF38BDF8),
-                                    unfocusedLabelColor = Color.White.copy(alpha = 0.4f),
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
+                                    focusedBorderColor = accentColor,
+                                    unfocusedBorderColor = cardBorder,
+                                    focusedLabelColor = accentColor,
+                                    unfocusedLabelColor = textSecondary,
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary
                                 )
                             )
 
@@ -4333,9 +4403,12 @@ fun PrivacyGuardSheet(
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = accentColor,
+                                    contentColor = if (isDark) Color.Black else Color.White
+                                )
                             ) {
-                                Text("Add Filter List", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text("Add Filter List", fontWeight = FontWeight.Bold)
                             }
 
                             Spacer(modifier = Modifier.height(20.dp))
@@ -4343,7 +4416,7 @@ fun PrivacyGuardSheet(
                             Text(
                                 text = "Add additional lists created and maintained by communities you trust.",
                                 fontSize = 12.sp,
-                                color = Color.Red.copy(alpha = 0.8f),
+                                color = textSecondary,
                                 textAlign = TextAlign.Center,
                                 lineHeight = 16.sp
                             )
@@ -4365,10 +4438,10 @@ fun PrivacyGuardSheet(
                                     placeholder = { Text("domain.com##.ad-class or domain.com###id") },
                                     modifier = Modifier.weight(1f),
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF38BDF8),
-                                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                                        focusedTextColor = Color.White,
-                                        unfocusedTextColor = Color.White
+                                        focusedBorderColor = accentColor,
+                                        unfocusedBorderColor = cardBorder,
+                                        focusedTextColor = textPrimary,
+                                        unfocusedTextColor = textPrimary
                                     )
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -4380,10 +4453,13 @@ fun PrivacyGuardSheet(
                                             Toast.makeText(context, "Rule added successfully", Toast.LENGTH_SHORT).show()
                                         }
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = accentColor,
+                                        contentColor = if (isDark) Color.Black else Color.White
+                                    ),
                                     contentPadding = PaddingValues(horizontal = 12.dp)
                                 ) {
-                                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add", tint = Color.White)
+                                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
                                 }
                             }
 
@@ -4392,7 +4468,7 @@ fun PrivacyGuardSheet(
                             Text(
                                 text = "Be sure to use the Content Filter Syntax",
                                 fontSize = 12.sp,
-                                color = Color.Red.copy(alpha = 0.8f),
+                                color = textSecondary,
                                 fontWeight = FontWeight.Bold
                             )
 
@@ -4400,12 +4476,13 @@ fun PrivacyGuardSheet(
 
                             Card(
                                 modifier = Modifier.fillMaxWidth().weight(1f),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                shape = RoundedCornerShape(12.dp)
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, cardBorder)
                             ) {
                                 if (customFilterRules.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("No custom rules defined yet.", color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
+                                        Text("No custom rules defined yet.", color = textSecondary, fontSize = 13.sp)
                                     }
                                 } else {
                                     LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
@@ -4421,7 +4498,7 @@ fun PrivacyGuardSheet(
                                                 Text(
                                                     text = rule,
                                                     fontSize = 13.sp,
-                                                    color = Color.White,
+                                                    color = textPrimary,
                                                     modifier = Modifier.weight(1f),
                                                     maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis
@@ -4436,13 +4513,13 @@ fun PrivacyGuardSheet(
                                                     Icon(
                                                         imageVector = Icons.Default.Delete,
                                                         contentDescription = "Delete",
-                                                        tint = Color.Red.copy(alpha = 0.6f),
+                                                        tint = textSecondary,
                                                         modifier = Modifier.size(16.dp)
                                                     )
                                                 }
                                             }
                                             if (idx < customFilterRules.size - 1) {
-                                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                                HorizontalDivider(color = dividerColor)
                                             }
                                         }
                                     }
@@ -4461,7 +4538,9 @@ fun PrivacyControlRow(
     title: String,
     icon: ImageVector,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    textColor: Color = MaterialTheme.colorScheme.onSurface,
+    accentColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Row(
         modifier = Modifier
@@ -4473,7 +4552,7 @@ fun PrivacyControlRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.7f),
+            tint = textColor.copy(alpha = 0.7f),
             modifier = Modifier.size(20.dp)
         )
 
@@ -4483,7 +4562,7 @@ fun PrivacyControlRow(
             text = title,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = Color.White,
+            color = textColor,
             modifier = Modifier.weight(1f)
         )
 
@@ -4491,8 +4570,10 @@ fun PrivacyControlRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color(0xFF38BDF8),
-                checkedTrackColor = Color(0xFF38BDF8).copy(alpha = 0.4f)
+                checkedThumbColor = accentColor,
+                checkedTrackColor = accentColor.copy(alpha = 0.4f),
+                uncheckedThumbColor = textColor.copy(alpha = 0.4f),
+                uncheckedTrackColor = textColor.copy(alpha = 0.15f)
             )
         )
     }
@@ -9964,6 +10045,72 @@ fun SettingsOverlay(
                                          iconColor = Color(0xFFF43F5E),
                                          onClick = { onNavigateSub("web_cleaner") }
                                      )
+                                     HorizontalDivider(color = dividerColor)
+                                     SettingsItemRow(
+                                         title = "Site Permissions & Security",
+                                         subtitle = "Camera, Mic, Location site control & activity log",
+                                         icon = Icons.Default.Lock,
+                                         iconColor = Color(0xFF60A5FA),
+                                         onClick = {
+                                             viewModel.setPermissionDashboardVisible(true)
+                                             onClose()
+                                         }
+                                     )
+                                     HorizontalDivider(color = dividerColor)
+                                     SettingsItemRow(
+                                         title = "Website Control & Performance Center",
+                                         subtitle = "Inspect requests, cookies, trackers, toggle JS & images",
+                                         icon = Icons.Default.Assessment,
+                                         iconColor = Color(0xFFFBBF24),
+                                         onClick = {
+                                             viewModel.setSiteDashboardVisible(true)
+                                             onClose()
+                                         }
+                                     )
+                                     HorizontalDivider(color = dividerColor)
+                                     SettingsItemRow(
+                                         title = "Smart Auto Refresh Rules",
+                                         subtitle = "Set timer, battery-saver & Wi-Fi only automatic reloading",
+                                         icon = Icons.Default.Autorenew,
+                                         iconColor = Color(0xFF38BDF8),
+                                         onClick = {
+                                             viewModel.setAutoRefreshRuleVisible(true)
+                                             onClose()
+                                         }
+                                     )
+                                     HorizontalDivider(color = dividerColor)
+                                     SettingsItemRow(
+                                         title = "Tor Network & SOCKS5 Proxy",
+                                         subtitle = "Orbot SOCKS5, .onion auto-routing & custom proxy servers",
+                                         icon = Icons.Default.Dns,
+                                         iconColor = Color(0xFF10B981),
+                                         onClick = {
+                                             viewModel.setProxyTorSheetVisible(true)
+                                             onClose()
+                                         }
+                                     )
+                                     HorizontalDivider(color = dividerColor)
+                                     SettingsItemRow(
+                                         title = "Privacy & Anti-Tracking Shield",
+                                         subtitle = "URL tracker token stripper & Canvas/Audio fingerprint defense",
+                                         icon = Icons.Default.Shield,
+                                         iconColor = Color(0xFF34D399),
+                                         onClick = {
+                                             viewModel.setAntiTrackingSheetVisible(true)
+                                             onClose()
+                                         }
+                                     )
+                                     HorizontalDivider(color = dividerColor)
+                                     SettingsItemRow(
+                                         title = "Saved Offline Web Archives",
+                                         subtitle = "Browse saved complete .mhtml page snapshots offline",
+                                         icon = Icons.Default.Book,
+                                         iconColor = Color(0xFFF59E0B),
+                                         onClick = {
+                                             viewModel.setOfflineArchivesSheetVisible(true)
+                                             onClose()
+                                         }
+                                     )
                                  }
                              }
 
@@ -9989,6 +10136,17 @@ fun SettingsOverlay(
                                          icon = Icons.Default.AutoAwesome,
                                          iconColor = Color(0xFF818CF8),
                                          onClick = { onNavigateSub("ai_automation") }
+                                     )
+                                     HorizontalDivider(color = dividerColor)
+                                     SettingsItemRow(
+                                         title = "AI Web Page Assistant",
+                                         subtitle = "Instant Gemini summaries, page Q&A, and smart key takeaways",
+                                         icon = Icons.Default.ChatBubble,
+                                         iconColor = Color(0xFFA78BFA),
+                                         onClick = {
+                                             viewModel.setAiPageAssistantVisible(true)
+                                             onClose()
+                                         }
                                      )
                                  }
                              }
@@ -13446,6 +13604,12 @@ fun AppearanceSettingsSubScreen(
     onHideDistractingItemsChange: (Boolean) -> Unit,
     onNavigateSub: (String) -> Unit
 ) {
+    val isLight = themeMode == "light"
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val subTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    val cardBg = MaterialTheme.colorScheme.surface
+    val cardBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -13453,113 +13617,83 @@ fun AppearanceSettingsSubScreen(
             .padding(vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Section: Customizations (Top priority)
-        Text(
-            text = "CUSTOM PREFERENCES",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
-            letterSpacing = 1.sp
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-        ) {
-            Column {
-                SettingsItemRow(
-                    title = "Customize Address Bar",
-                    subtitle = "Set layout to Top or Bottom, auto-hide, swipe behaviours",
-                    icon = Icons.Default.VerticalAlignBottom,
-                    iconColor = Color(0xFF38BDF8),
-                    onClick = { onNavigateSub("customize_address_bar") }
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                SettingsItemRow(
-                    title = "Customize Menu",
-                    subtitle = "Toggle options visible in browser action menu",
-                    icon = Icons.Default.MenuOpen,
-                    iconColor = Color(0xFF10B981),
-                    onClick = { onNavigateSub("customize_menu") }
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                SettingsItemRow(
-                    title = "Tabs & Start Page",
-                    subtitle = "Configure iCloud tabs, world news, favorites, custom wallpaper",
-                    icon = Icons.Default.Web,
-                    iconColor = Color(0xFFEC4899),
-                    onClick = { onNavigateSub("tabs_start_page") }
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                SettingsItemRow(
-                    title = "Chrome Web Store Themes",
-                    subtitle = "Install and apply custom themes directly from Chrome Web Store",
-                    icon = Icons.Default.Palette,
-                    iconColor = Color(0xFFF43F5E),
-                    onClick = { onNavigateSub("chrome_themes") }
-                )
-            }
-        }
-
-        // Section: Theme Mode
+        // Section: Theme Mode (Top Priority)
         Text(
             text = "THEME MODE",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
+            color = onSurfaceColor.copy(alpha = 0.7f),
             letterSpacing = 1.sp
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(containerColor = cardBg),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+            border = BorderStroke(1.dp, cardBorder)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = "App Theme Mode",
-                    fontSize = 14.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = onSurfaceColor
                 )
                 Text(
-                    text = "Switch between light, dark or follow your system settings.",
-                    fontSize = 11.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    text = "Select Light mode or true pitch-black Dark AMOLED mode.",
+                    fontSize = 12.sp,
+                    color = subTextColor,
+                    modifier = Modifier.padding(bottom = 14.dp)
                 )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val modes = listOf("light" to "Light", "dark" to "Dark", "amoled" to "AMOLED", "system" to "System")
+                    val modes = listOf(
+                        "light" to "Light Mode",
+                        "amoled" to "Dark AMOLED Mode"
+                    )
                     modes.forEach { (modeId, modeName) ->
-                        val isSelected = themeMode == modeId
+                        val isSelected = (themeMode == modeId) || (modeId == "amoled" && themeMode != "light")
+                        val activeContainer = if (isLight) Color.Black else Color.White
+                        val activeContent = if (isLight) Color.White else Color.Black
+                        val inactiveContainer = if (isLight) Color(0xFFF4F4F5) else Color(0xFF121212)
+                        val inactiveContent = if (isLight) Color.Black else Color.White
+
                         Card(
                             modifier = Modifier
                                 .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
                                 .clickable { onThemeModeChange(modeId) },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) Color(0xFF38BDF8) else Color(0xFF050B18)
+                                containerColor = if (isSelected) activeContainer else inactiveContainer
                             ),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, if (isSelected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.05f))
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(
+                                1.5.dp,
+                                if (isSelected) activeContainer else cardBorder
+                            )
                         ) {
-                            Box(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
+                                    .padding(vertical = 14.dp, horizontal = 10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
+                                Icon(
+                                    imageVector = if (modeId == "light") Icons.Default.LightMode else Icons.Default.DarkMode,
+                                    contentDescription = modeName,
+                                    tint = if (isSelected) activeContent else inactiveContent,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = modeName,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) Color.Black else Color.White
+                                    color = if (isSelected) activeContent else inactiveContent
                                 )
                             }
                         }
@@ -13568,20 +13702,62 @@ fun AppearanceSettingsSubScreen(
             }
         }
 
-        // Section: Website & Font Sizing
+        // Section: Layout Customizations
         Text(
-            text = "WEBSITE ZOOM & FONTS",
+            text = "CUSTOM PREFERENCES",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
+            color = onSurfaceColor.copy(alpha = 0.7f),
             letterSpacing = 1.sp
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(containerColor = cardBg),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+            border = BorderStroke(1.dp, cardBorder)
+        ) {
+            Column {
+                SettingsItemRow(
+                    title = "Customize Address Bar",
+                    subtitle = "Set layout to Top or Bottom, auto-hide, swipe behaviours",
+                    icon = Icons.Default.VerticalAlignBottom,
+                    iconColor = onSurfaceColor,
+                    onClick = { onNavigateSub("customize_address_bar") }
+                )
+                HorizontalDivider(color = cardBorder)
+                SettingsItemRow(
+                    title = "Customize Menu",
+                    subtitle = "Toggle options visible in browser action menu",
+                    icon = Icons.Default.MenuOpen,
+                    iconColor = onSurfaceColor,
+                    onClick = { onNavigateSub("customize_menu") }
+                )
+                HorizontalDivider(color = cardBorder)
+                SettingsItemRow(
+                    title = "Tabs & Start Page",
+                    subtitle = "Configure iCloud tabs, world news, favorites, custom wallpaper",
+                    icon = Icons.Default.Web,
+                    iconColor = onSurfaceColor,
+                    onClick = { onNavigateSub("tabs_start_page") }
+                )
+            }
+        }
+
+        // Section: Website & Font Sizing
+        Text(
+            text = "WEBSITE ZOOM & FONTS",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = onSurfaceColor.copy(alpha = 0.7f),
+            letterSpacing = 1.sp
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = cardBg),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, cardBorder)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 // 1. Website Zoom Slider
@@ -13594,19 +13770,19 @@ fun AppearanceSettingsSubScreen(
                         text = "Website Zoom Level",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = onSurfaceColor
                     )
                     Text(
                         text = "${(webZoomLevel * 100).toInt()}%",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF38BDF8)
+                        color = onSurfaceColor
                     )
                 }
                 Text(
                     text = "Controls the default magnification scaling of webpages.",
                     fontSize = 11.sp,
-                    color = Color.Gray,
+                    color = subTextColor,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Row(
@@ -13614,7 +13790,7 @@ fun AppearanceSettingsSubScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     IconButton(onClick = { onWebZoomLevelChange(maxOf(0.5f, webZoomLevel - 0.1f)) }) {
-                        Icon(Icons.Default.Remove, "Decrease Zoom", tint = Color.White)
+                        Icon(Icons.Default.Remove, "Decrease Zoom", tint = onSurfaceColor)
                     }
                     Slider(
                         value = webZoomLevel,
@@ -13622,16 +13798,17 @@ fun AppearanceSettingsSubScreen(
                         valueRange = 0.5f..2.0f,
                         modifier = Modifier.weight(1f),
                         colors = SliderDefaults.colors(
-                            activeTrackColor = Color(0xFF38BDF8),
-                            thumbColor = Color(0xFF38BDF8)
+                            activeTrackColor = onSurfaceColor,
+                            thumbColor = onSurfaceColor,
+                            inactiveTrackColor = cardBorder
                         )
                     )
                     IconButton(onClick = { onWebZoomLevelChange(minOf(2.0f, webZoomLevel + 0.1f)) }) {
-                        Icon(Icons.Default.Add, "Increase Zoom", tint = Color.White)
+                        Icon(Icons.Default.Add, "Increase Zoom", tint = onSurfaceColor)
                     }
                 }
 
-                HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
+                HorizontalDivider(color = cardBorder, modifier = Modifier.padding(vertical = 12.dp))
 
                 // 2. Text Scaling Slider
                 Row(
@@ -13643,19 +13820,19 @@ fun AppearanceSettingsSubScreen(
                         text = "Font Scale (Text Zoom)",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = onSurfaceColor
                     )
                     Text(
                         text = "${(webTextZoom * 100).toInt()}%",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF38BDF8)
+                        color = onSurfaceColor
                     )
                 }
                 Text(
                     text = "Scales the font sizes of text on pages for readability.",
                     fontSize = 11.sp,
-                    color = Color.Gray,
+                    color = subTextColor,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Row(
@@ -13663,7 +13840,7 @@ fun AppearanceSettingsSubScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     IconButton(onClick = { onWebTextZoomChange(maxOf(0.5f, webTextZoom - 0.1f)) }) {
-                        Icon(Icons.Default.Remove, "Decrease Text Size", tint = Color.White)
+                        Icon(Icons.Default.Remove, "Decrease Text Size", tint = onSurfaceColor)
                     }
                     Slider(
                         value = webTextZoom,
@@ -13671,12 +13848,13 @@ fun AppearanceSettingsSubScreen(
                         valueRange = 0.5f..2.0f,
                         modifier = Modifier.weight(1f),
                         colors = SliderDefaults.colors(
-                            activeTrackColor = Color(0xFF38BDF8),
-                            thumbColor = Color(0xFF38BDF8)
+                            activeTrackColor = onSurfaceColor,
+                            thumbColor = onSurfaceColor,
+                            inactiveTrackColor = cardBorder
                         )
                     )
                     IconButton(onClick = { onWebTextZoomChange(minOf(2.0f, webTextZoom + 0.1f)) }) {
-                        Icon(Icons.Default.Add, "Increase Text Size", tint = Color.White)
+                        Icon(Icons.Default.Add, "Increase Text Size", tint = onSurfaceColor)
                     }
                 }
             }
@@ -13687,27 +13865,27 @@ fun AppearanceSettingsSubScreen(
             text = "ACCESSIBILITY & CLEANING",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
+            color = onSurfaceColor.copy(alpha = 0.7f),
             letterSpacing = 1.sp
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(containerColor = cardBg),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+            border = BorderStroke(1.dp, cardBorder)
         ) {
             Column {
                 SettingsSwitchRow(
                     title = "Force Dark Mode",
-                    subtitle = "Automatically applies a beautiful eye-safe dark theme to light webpages using advanced styling injection.",
+                    subtitle = "Automatically applies an eye-safe dark theme to light webpages using styling injection.",
                     checked = forceDarkWebpages,
                     onCheckedChange = onForceDarkWebpagesChange
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                HorizontalDivider(color = cardBorder)
                 SettingsSwitchRow(
                     title = "Hide Distracting Items",
-                    subtitle = "Instantly clears clutters, newsletters, comments, social bars and banners for a polished focused reading.",
+                    subtitle = "Instantly clears clutters, newsletters, comments, social bars and banners for focused reading.",
                     checked = hideDistractingItems,
                     onCheckedChange = onHideDistractingItemsChange
                 )
@@ -13731,6 +13909,10 @@ fun CustomizeAddressBarSubScreen(
     hideBottomToolbar: Boolean = false,
     onHideBottomToolbarChange: (Boolean) -> Unit = {}
 ) {
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val subTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    val cardBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -13742,7 +13924,7 @@ fun CustomizeAddressBarSubScreen(
             text = "ADDRESS BAR POSITION",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
+            color = onSurfaceColor.copy(alpha = 0.7f),
             letterSpacing = 1.sp
         )
 
@@ -13758,7 +13940,7 @@ fun CustomizeAddressBarSubScreen(
                     .clickable { onAddressBarPositionChange("top") }
                     .border(
                         width = 2.dp,
-                        color = if (isTop) Color(0xFF38BDF8) else Color.Transparent,
+                        color = if (isTop) onSurfaceColor else Color.Transparent,
                         shape = RoundedCornerShape(16.dp)
                     ),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -13773,7 +13955,7 @@ fun CustomizeAddressBarSubScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(64.dp)
-                            .background(Color(0xFF050B18), RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
                             .padding(6.dp)
                     ) {
                         // Top bar
@@ -13781,13 +13963,13 @@ fun CustomizeAddressBarSubScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(20.dp)
-                                .background(Color(0xFF0B1224), RoundedCornerShape(4.dp))
+                                .background(onSurfaceColor.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                 .align(Alignment.TopCenter)
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Top Bar", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Safari style", fontSize = 11.sp, color = Color.Gray)
+                    Text("Top Bar", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
+                    Text("Safari style", fontSize = 11.sp, color = subTextColor)
                 }
             }
 
@@ -13799,7 +13981,7 @@ fun CustomizeAddressBarSubScreen(
                     .clickable { onAddressBarPositionChange("bottom") }
                     .border(
                         width = 2.dp,
-                        color = if (isBottom) Color(0xFF38BDF8) else Color.Transparent,
+                        color = if (isBottom) onSurfaceColor else Color.Transparent,
                         shape = RoundedCornerShape(16.dp)
                     ),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -13814,7 +13996,7 @@ fun CustomizeAddressBarSubScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(64.dp)
-                            .background(Color(0xFF050B18), RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
                             .padding(6.dp)
                     ) {
                         // Bottom bar
@@ -13822,13 +14004,13 @@ fun CustomizeAddressBarSubScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(20.dp)
-                                .background(Color(0xFF0B1224), RoundedCornerShape(4.dp))
+                                .background(onSurfaceColor.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                 .align(Alignment.BottomCenter)
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Bottom Bar", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Modern layout", fontSize = 11.sp, color = Color.Gray)
+                    Text("Bottom Bar", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = onSurfaceColor)
+                    Text("Modern layout", fontSize = 11.sp, color = subTextColor)
                 }
             }
         }
@@ -13837,7 +14019,7 @@ fun CustomizeAddressBarSubScreen(
             text = "LAYOUT OPTIONS",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
+            color = onSurfaceColor.copy(alpha = 0.7f),
             letterSpacing = 1.sp
         )
 
@@ -13845,7 +14027,7 @@ fun CustomizeAddressBarSubScreen(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+            border = BorderStroke(1.dp, cardBorder)
         ) {
             Column {
                 SettingsSwitchRow(
@@ -13854,28 +14036,28 @@ fun CustomizeAddressBarSubScreen(
                     checked = autoHideBar,
                     onCheckedChange = onAutoHideBarChange
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                HorizontalDivider(color = cardBorder)
                 SettingsSwitchRow(
                     title = "Swipe for Fullscreen",
                     subtitle = "Swipe down to go fullscreen with Bottom Bar (or swipe up with Top Bar).",
                     checked = swipeForFullscreen,
                     onCheckedChange = onSwipeForFullscreenChange
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                HorizontalDivider(color = cardBorder)
                 SettingsSwitchRow(
                     title = "Swipe to View Tabs",
                     subtitle = "Swipe up from bottom bar (or down from top bar) to trigger the tab switcher.",
                     checked = swipeToViewTabs,
                     onCheckedChange = onSwipeToViewTabsChange
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                HorizontalDivider(color = cardBorder)
                 SettingsSwitchRow(
                     title = "Show Full Website URL",
                     subtitle = "Always display full absolute URL path rather than simplified domain name.",
                     checked = showFullUrl,
                     onCheckedChange = onShowFullUrlChange
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                HorizontalDivider(color = cardBorder)
                 SettingsSwitchRow(
                     title = "Hide Bottom Toolbar",
                     subtitle = "Hide the bottom bar and move its features to a 3-dots menu in the Address Bar.",
@@ -13913,7 +14095,7 @@ fun CustomizeMenuSubScreen(
             text = "BROWSER ACTION MENU ITEMS",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             letterSpacing = 1.sp
         )
 
@@ -13992,7 +14174,7 @@ fun TabsAndStartPageSubScreen(
             text = "START PAGE & TABS PREFERENCES",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFF59E0B),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             letterSpacing = 1.sp
         )
 

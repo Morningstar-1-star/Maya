@@ -157,10 +157,45 @@ object WebViewPool {
         webViews.keys.toList().forEach { removeWebView(it) }
     }
 
+    fun onTabSelected(activeTabId: Long) {
+        webViews.forEach { (id, wv) ->
+            if (id == activeTabId) {
+                wv.onResume()
+            } else {
+                wv.onPause()
+            }
+        }
+    }
+
+    fun onAppPause() {
+        webViews.values.forEach { it.onPause() }
+    }
+
+    fun onAppResume(activeTabId: Long?) {
+        if (activeTabId != null) {
+            webViews[activeTabId]?.onResume()
+        } else {
+            webViews.values.firstOrNull()?.onResume()
+        }
+    }
+
+    fun trimInactiveMemory(activeTabId: Long?, maxRetained: Int = 6) {
+        if (webViews.size <= maxRetained) return
+        val candidates = webViews.keys.filter { it != activeTabId }
+        val toRemove = candidates.take(webViews.size - maxRetained)
+        toRemove.forEach { removeWebView(it) }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupSettings(webView: WebView, viewModel: BrowserViewModel) {
-        webView.overScrollMode = WebView.OVER_SCROLL_ALWAYS
-        // Force full hardware rendering acceleration for extremely smooth and responsive browsing
+        // Fast, buttery-smooth scrolling (60/120Hz)
+        webView.overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        webView.isVerticalScrollBarEnabled = true
+        webView.isHorizontalScrollBarEnabled = false
+        webView.scrollBarStyle = android.view.View.SCROLLBARS_INSIDE_OVERLAY
+        webView.isScrollbarFadingEnabled = true
+
+        // Full hardware rendering acceleration
         webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
         @Suppress("DEPRECATION")
         webView.settings.setRenderPriority(WebSettings.RenderPriority.HIGH)
@@ -175,21 +210,48 @@ object WebViewPool {
             setSupportZoom(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             
-            // Speed up page loading and layout processing by pre-rasterizing offscreen elements
+            // Ultra-smooth 60/120Hz rasterization & tile processing
             offscreenPreRaster = true
             
-            if (viewModel.lowPowerModeEnabled.value) {
-                cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+            // Fast cache for rapid instant navigation
+            cacheMode = if (viewModel.lowPowerModeEnabled.value) {
+                WebSettings.LOAD_CACHE_ELSE_NETWORK
             } else {
-                cacheMode = WebSettings.LOAD_DEFAULT
+                WebSettings.LOAD_DEFAULT
             }
+            
+            // Smooth transitions and rendering optimizations
+            setEnableSmoothTransition(true)
+            layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
+            
+            // Prevent unprompted autoplaying videos from lagging initial page loads
+            mediaPlaybackRequiresUserGesture = true
             
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(true)
+            allowFileAccess = false
+            allowContentAccess = true
         }
     }
 
     private fun setupClients(webView: WebView, tabId: Long, viewModel: BrowserViewModel) {
+        val emptyBytes = ByteArray(0)
+        fun emptyTextResponse() = WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(emptyBytes))
+        fun emptyImageResponse() = WebResourceResponse("image/png", "UTF-8", ByteArrayInputStream(emptyBytes))
+        val imagePattern = java.util.regex.Pattern.compile("(?i)\\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\\?.*)?$")
+        val pendingBlockedCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+        fun reportBlockedAd(view: WebView?) {
+            if (pendingBlockedCounter.incrementAndGet() == 1) {
+                view?.postDelayed({
+                    val count = pendingBlockedCounter.getAndSet(0)
+                    if (count > 0) {
+                        viewModel.incrementBlockedAdsBy(tabId, count)
+                    }
+                }, 250)
+            }
+        }
+
         webView.webViewClient = object : WebViewClient() {
             private fun isAdRequest(urlStr: String): Boolean {
                 val mainUrl = viewModel.allTabs.value.find { it.id == tabId }?.url ?: ""
@@ -215,28 +277,55 @@ object WebViewPool {
                 val url = request?.url?.toString() ?: return false
                 val host = request.url?.host ?: ""
                 
+                // 0. Magnet Link Interception
+                if (com.example.data.MagnetTorrentManager.isMagnetUrl(url)) {
+                    view?.post {
+                        com.example.data.MagnetTorrentManager.activeMagnetRequest.value =
+                            com.example.data.MagnetTorrentManager.parseMagnetUri(url)
+                    }
+                    return true
+                }
+
+                // 0b. Tor .onion Detection & Automation
+                if (com.example.network.ProxyTorManager.isOnionUrl(url)) {
+                    val currentProxy = com.example.network.ProxyTorManager.currentMode.value
+                    val isTorActive = currentProxy == com.example.network.ProxyMode.TOR_ORBOT || currentProxy == com.example.network.ProxyMode.TOR_LOCAL
+                    if (!isTorActive && com.example.network.ProxyTorManager.autoRouteOnion.value) {
+                        view?.post {
+                            viewModel.setPendingOnionUrl(url)
+                        }
+                        return true
+                    }
+                }
+
+                // 0c. URL Tracker Stripping (only on main frame navigation)
+                if (request?.isForMainFrame == true) {
+                    val (cleanedUrl, stripped) = com.example.data.PrivacyShieldManager.cleanTrackingParameters(url)
+                    if (cleanedUrl != url) {
+                        view?.post {
+                            view.loadUrl(cleanedUrl)
+                        }
+                        return true
+                    }
+                }
+
                 // 1. Prevent App Redirects if option is enabled
                 if (viewModel.stopAppRedirects.value) {
                     if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("about:")) {
                         // This is an app scheme (e.g. market://, intent://, whatsapp://, telegram://)
-                        // Block it from redirecting!
                         return true
                     }
                 }
 
                 // 2. Custom Blocked Links
                 if (viewModel.isLinkBlocked(url)) {
-                    view?.post {
-                        viewModel.incrementBlockedAds(tabId)
-                    }
+                    reportBlockedAd(view)
                     return true
                 }
                 
                 // 3. Prevent ad and redirect host navigation
                 if (viewModel.adBlockerOn.value && isAdRequest(url)) {
-                    view?.post {
-                        viewModel.incrementBlockedAds(tabId)
-                    }
+                    reportBlockedAd(view)
                     return true // Block navigation!
                 }
                 
@@ -252,51 +341,29 @@ object WebViewPool {
 
                 // 1. Custom Blocked Links
                 if (viewModel.isLinkBlocked(url)) {
-                    view?.post {
-                        viewModel.incrementBlockedAds(tabId)
-                    }
-                    return WebResourceResponse(
-                        "text/plain",
-                        "UTF-8",
-                        ByteArrayInputStream("".toByteArray())
-                    )
+                    reportBlockedAd(view)
+                    return emptyTextResponse()
                 }
 
                 // 2. Custom Blocked Images Pattern & General Image Block
-                val isImage = url.contains(Regex("\\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\\?.*)?$")) || request?.requestHeaders?.get("Accept")?.contains("image") == true
+                val isImage = imagePattern.matcher(url).find() || request.requestHeaders?.get("Accept")?.contains("image") == true
                 if (isImage) {
                     if (viewModel.blockedImagesEnabled.value || viewModel.isImageBlocked(url)) {
-                        return WebResourceResponse(
-                            "image/png",
-                            "UTF-8",
-                            ByteArrayInputStream(ByteArray(0))
-                        )
+                        return emptyImageResponse()
                     }
                 }
 
                 // 3. Ad Blocker
                 if (adBlockOn && isAdRequest(url)) {
-                    // Increment count in UI thread safely
-                    view?.post {
-                        viewModel.incrementBlockedAds(tabId)
-                    }
-                    // Return empty response to block the ad!
-                    return WebResourceResponse(
-                        "text/plain",
-                        "UTF-8",
-                        ByteArrayInputStream("".toByteArray())
-                    )
+                    reportBlockedAd(view)
+                    return emptyTextResponse()
                 }
 
                 // 4. Paywall Script Bypasser
                 if (viewModel.bypassPaywallsEnabled.value) {
                     val lowUrl = url.lowercase()
                     if (lowUrl.contains("tinypass.com") || lowUrl.contains("piano.io") || lowUrl.contains("poool.fr") || lowUrl.contains("outbrain.com") || lowUrl.contains("paywall") || lowUrl.contains("gatekeeper")) {
-                        return WebResourceResponse(
-                            "text/plain",
-                            "UTF-8",
-                            ByteArrayInputStream("".toByteArray())
-                        )
+                        return emptyTextResponse()
                     }
                 }
 
@@ -309,14 +376,8 @@ object WebViewPool {
                     val dnsCustomValue = viewModel.dnsCustomValue.value
                     
                     if (DnsManager.shouldBlockDomain(host, dnsEnabled, dnsMode, dnsPresetId, dnsCustomValue)) {
-                        view?.post {
-                            viewModel.incrementBlockedAds(tabId)
-                        }
-                        return WebResourceResponse(
-                            "text/plain",
-                            "UTF-8",
-                            ByteArrayInputStream("".toByteArray())
-                        )
+                        reportBlockedAd(view)
+                        return emptyTextResponse()
                     }
                 }
 
@@ -327,16 +388,8 @@ object WebViewPool {
                 super.onLoadResource(view, url)
                 if (url != null) {
                     val lower = url.lowercase()
-                    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || 
-                        lower.endsWith(".webp") || lower.endsWith(".gif")
-                    ) {
-                        viewModel.captureMedia(
-                            url = url,
-                            type = "image",
-                            pageTitle = view?.title ?: "Website Image",
-                            pageUrl = view?.url ?: ""
-                        )
-                    } else if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.contains(".m3u8")) {
+                    // Fast detection of real video streams; skips spamming SQLite with every site icon/button
+                    if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.contains(".m3u8")) {
                         viewModel.captureMedia(
                             url = url,
                             type = "video",
@@ -353,6 +406,8 @@ object WebViewPool {
                 if (view != null && url != null) {
                     com.example.ui.CookiePersistence.restoreCookiesForUrl(view.context, url)
                 }
+                // Inject anti-fingerprinting shield early
+                view?.evaluateJavascript(com.example.data.PrivacyShieldManager.getAntiFingerprintingScript(), null)
                 viewModel.updateNavigationState(
                     tabId = tabId,
                     canGoBack = view?.canGoBack() ?: false,
@@ -962,142 +1017,33 @@ object WebViewPool {
                             reportImage(imgs[i].src);
                         }
 
-                        // Scan videos on load & inject corner overlay buttons
-                        var videoOverlays = [];
-
-                        function createPlayOverlayForVideo(video) {
-                            if (!video || video.dataset.hasPremiumButton === "true") return;
-                            video.dataset.hasPremiumButton = "true";
-
+                        // Lightweight, high-performance HTML5 Video detection via native events
+                        function handleVideoDetected(video) {
+                            if (!video) return;
                             var src = video.currentSrc || video.src || (video.getElementsByTagName('source')[0] && video.getElementsByTagName('source')[0].src) || "";
                             if (src) {
                                 reportVideo(src);
                             }
-
-                            var btn = document.createElement('div');
-                            btn.className = 'uc-premium-video-corner-play-btn';
-                            btn.style.position = 'absolute';
-                            btn.style.width = '34px';
-                            btn.style.height = '34px';
-                            btn.style.borderRadius = '50%';
-                            btn.style.background = 'linear-gradient(135deg, #8B5CF6, #EC4899)';
-                            btn.style.boxShadow = '0 3px 8px rgba(0,0,0,0.5)';
-                            btn.style.display = 'flex';
-                            btn.style.alignItems = 'center';
-                            btn.style.justifyContent = 'center';
-                            btn.style.zIndex = '2147483647';
-                            btn.style.cursor = 'pointer';
-                            btn.style.pointerEvents = 'auto';
-                            btn.style.transition = 'transform 0.1s ease';
-                            btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>';
-
-                            var pulse = document.createElement('div');
-                            pulse.style.position = 'absolute';
-                            pulse.style.width = '100%';
-                            pulse.style.height = '100%';
-                            pulse.style.borderRadius = '50%';
-                            pulse.style.background = 'rgba(139, 92, 246, 0.4)';
-                            pulse.style.animation = 'ucPulseOverlay 1.5s infinite';
-                            btn.appendChild(pulse);
-
-                            if (!document.getElementById('uc-pulse-styles')) {
-                                var sheet = document.createElement('style');
-                                sheet.id = 'uc-pulse-styles';
-                                sheet.innerHTML = `
-                                    @keyframes ucPulseOverlay {
-                                        0% { transform: scale(1); opacity: 0.8; }
-                                        100% { transform: scale(1.4); opacity: 0; }
-                                    }
-                                `;
-                                document.head.appendChild(sheet);
-                            }
-
-                            btn.onclick = function(e) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                window.MediaCaptureInterface.onVideoIconClicked(src, document.title || 'Video Stream');
-                            };
-
-                            document.body.appendChild(btn);
-
-                            function reposition() {
-                                if (!video.isConnected) {
-                                    btn.remove();
-                                    return false;
-                                }
-                                var rect = video.getBoundingClientRect();
-                                if (rect.width > 40 && rect.height > 40 && rect.top < window.innerHeight && rect.bottom > 0) {
-                                    btn.style.left = (window.scrollX + rect.left + rect.width - 40) + 'px';
-                                    btn.style.top = (window.scrollY + rect.top + 6) + 'px';
-                                    btn.style.display = 'flex';
-                                } else {
-                                    btn.style.display = 'none';
-                                }
-                                return true;
-                            }
-
-                            reposition();
-                            videoOverlays.push({ video: video, btn: btn, reposition: reposition });
                         }
 
-                        function scanAndAttach() {
-                            var videos = document.getElementsByTagName('video');
-                            for (var i = 0; i < videos.length; i++) {
-                                createPlayOverlayForVideo(videos[i]);
+                        // Listen to play event during capture phase for instant zero-lag video detection
+                        document.addEventListener('play', function(e) {
+                            if (e.target && e.target.tagName === 'VIDEO') {
+                                handleVideoDetected(e.target);
                             }
-                        }
+                        }, true);
 
-                        window.addEventListener('scroll', function() {
-                            videoOverlays = videoOverlays.filter(function(item) {
-                                return item.reposition();
-                            });
-                        }, { passive: true });
-
-                        window.addEventListener('resize', function() {
-                            videoOverlays = videoOverlays.filter(function(item) {
-                                return item.reposition();
-                            });
-                        }, { passive: true });
-
-                        setInterval(scanAndAttach, 1500);
-                        scanAndAttach();
-
+                        // Scan existing videos once on page load without heavy DOM polling
                         var vids = document.getElementsByTagName('video');
                         for (var i = 0; i < vids.length; i++) {
-                            var src = vids[i].src || (vids[i].getElementsByTagName('source')[0] && vids[i].getElementsByTagName('source')[0].src);
-                            reportVideo(src);
+                            handleVideoDetected(vids[i]);
                         }
-
-                        // MutationObserver for infinite scroll pages like Insta / ArtStation
-                        var observer = new MutationObserver(function(mutations) {
-                            ${if (adBlockOn) "try { applyCosmeticAdBlock(); } catch(e) {}" else ""}
-                            mutations.forEach(function(mutation) {
-                                mutation.addedNodes.forEach(function(node) {
-                                    if (node.tagName === 'IMG') {
-                                        reportImage(node.src);
-                                    } else if (node.tagName === 'VIDEO') {
-                                        var src = node.src || (node.getElementsByTagName('source')[0] && node.getElementsByTagName('source')[0].src);
-                                        reportVideo(src);
-                                    } else if (node.getElementsByTagName) {
-                                        var nestedImgs = node.getElementsByTagName('img');
-                                        for (var j = 0; j < nestedImgs.length; j++) {
-                                            reportImage(nestedImgs[j].src);
-                                        }
-                                        var nestedVids = node.getElementsByTagName('video');
-                                        for (var j = 0; j < nestedVids.length; j++) {
-                                            var src = nestedVids[j].src || (nestedVids[j].getElementsByTagName('source')[0] && nestedVids[j].getElementsByTagName('source')[0].src);
-                                            reportVideo(src);
-                                        }
-                                    }
-                                });
-                            });
-                        });
-                        observer.observe(document.body, { childList: true, subtree: true });
                     })();
                 """.trimIndent()
                 view?.evaluateJavascript(script, null)
 
                 if (url != null && view != null) {
+                    view.evaluateJavascript(com.example.data.PrivacyShieldManager.getAntiFingerprintingScript(), null)
                     val domain = try {
                         val host = android.net.Uri.parse(url).host ?: ""
                         if (host.startsWith("www.")) host.substring(4) else host
@@ -1107,6 +1053,7 @@ object WebViewPool {
                     if (domain.isNotEmpty()) {
                         val mode = com.example.ui.BrowserFeaturesManager.siteDarkPref[domain] ?: "Auto"
                         com.example.ui.BrowserFeaturesManager.injectSmartDarkMode(view, mode)
+                        com.example.ui.BrowserFeaturesManager.applySiteControls(view, domain)
                     }
                 }
             }
@@ -1215,6 +1162,19 @@ object WebViewPool {
             try {
                 val context = webView.context
                 val filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "downloaded_file"
+
+                // Intercept torrent files for Magnet/Torrent inspector
+                if (com.example.data.MagnetTorrentManager.isTorrentUrl(url) || mimetype == "application/x-bittorrent") {
+                    com.example.data.MagnetTorrentManager.activeMagnetRequest.value =
+                        com.example.data.ParsedMagnet(
+                            rawUri = url,
+                            displayName = filename,
+                            infoHash = "",
+                            trackers = emptyList(),
+                            exactLength = if (contentLength > 0) contentLength else null
+                        )
+                }
+
                 val uri = android.net.Uri.parse(url)
                 val request = android.app.DownloadManager.Request(uri).apply {
                     setMimeType(mimetype)
@@ -1360,119 +1320,93 @@ fun TabWebView(
     val isSplit = com.example.ui.BrowserFeaturesManager.splitTabStates[tabId]?.isSplit == true
     val isReaderActive = com.example.ui.BrowserFeaturesManager.readerActiveForTab[tabId] == true
 
-    if (isReaderActive) {
-        com.example.ui.SmartReaderView(
-            tabId = tabId,
-            viewModel = viewModel,
-            modifier = modifier
-        )
-    } else if (isSplit) {
-        com.example.ui.SplitScreenTabWebView(
-            tabId = tabId,
-            viewModel = viewModel,
-            modifier = modifier
-        )
-    } else {
-        androidx.compose.runtime.key(tabId) {
-            AndroidView(
-            factory = { ctx ->
-                androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
-                    layoutParams = android.view.ViewGroup.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    (webView.parent as? android.view.ViewGroup)?.removeView(webView)
-                    addView(webView)
-                    setOnRefreshListener {
-                        webView.reload()
-                    }
-                }
-            },
-            modifier = modifier.fillMaxSize(),
-            update = { swipeRefreshLayout ->
-                swipeRefreshLayout.isRefreshing = progress < 100
+    // 1. Text zoom
+    LaunchedEffect(webTextZoom) {
+        webView.settings.textZoom = (webTextZoom * 100).toInt()
+    }
 
-                val view = webView
-                if (siteForceDark) {
-                    view.setBackgroundColor(android.graphics.Color.BLACK)
-                } else {
-                    view.setBackgroundColor(android.graphics.Color.WHITE)
+    // 2. Force Dark Mode for Webpages
+    LaunchedEffect(siteForceDark, progress == 100) {
+        val darkScript = if (siteForceDark) {
+            """
+            (function() {
+                if (!document.getElementById('force-dark-style')) {
+                    var style = document.createElement('style');
+                    style.id = 'force-dark-style';
+                    style.innerHTML = `
+                        html, body, #page, .page, main, article, section, div:not([style*="background-image"]) {
+                            filter: invert(1) hue-rotate(180deg) !important;
+                            background-color: #000000 !important;
+                            background: #000000 !important;
+                            color: #FFFFFF !important;
+                        }
+                        img, video, iframe, canvas, [style*="background-image"] {
+                            filter: invert(1) hue-rotate(180deg) !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
                 }
-                // 1. Text zoom
-                view.settings.textZoom = (webTextZoom * 100).toInt()
-            
-            // 2. Force Dark Mode for Webpages via CSS injection
-            val darkScript = if (siteForceDark) {
-                """
-                (function() {
-                    if (!document.getElementById('force-dark-style')) {
-                        var style = document.createElement('style');
-                        style.id = 'force-dark-style';
-                        style.innerHTML = `
-                            html, body, #page, .page, main, article, section, div:not([style*="background-image"]) {
-                                filter: invert(1) hue-rotate(180deg) !important;
-                                background-color: #000000 !important;
-                                background: #000000 !important;
-                                color: #FFFFFF !important;
-                            }
-                            img, video, iframe, canvas, [style*="background-image"] {
-                                filter: invert(1) hue-rotate(180deg) !important;
-                            }
-                        `;
-                        document.head.appendChild(style);
-                    }
-                })()
-                """.trimIndent()
-            } else {
-                """
-                (function() {
-                    var style = document.getElementById('force-dark-style');
-                    if (style) style.remove();
-                })()
-                """.trimIndent()
-            }
-            view.evaluateJavascript(darkScript, null)
-
-            // 3. Page Zoom Level via CSS body style injection
-            val zoomScript = """
-                (function() {
-                    document.body.style.zoom = "$siteZoom";
-                })()
+            })()
             """.trimIndent()
-            view.evaluateJavascript(zoomScript, null)
+        } else {
+            """
+            (function() {
+                var style = document.getElementById('force-dark-style');
+                if (style) style.remove();
+            })()
+            """.trimIndent()
+        }
+        webView.evaluateJavascript(darkScript, null)
+    }
 
-            // 4. Hide Distracting Items script
-            val distractScript = if (hideDistractingItems) {
-                """
-                (function() {
-                    if (!document.getElementById('hide-distracting-style')) {
-                        var style = document.createElement('style');
-                        style.id = 'hide-distracting-style';
-                        style.innerHTML = `
-                            .floating-widget, .social-share, .newsletter-signup, .sidebar-ads,
-                            [class*="newsletter"], [id*="newsletter"], [class*="signup-prompt"],
-                            [class*="sticky-footer"], [class*="floating-buttons"], .share-buttons,
-                            aside, .sidebar, #sidebar, .related-posts, .recommended-content,
-                            [id*="comments"], [class*="comments"], .comment-section {
-                                display: none !important;
-                                visibility: hidden !important;
-                            }
-                        `;
-                        document.head.appendChild(style);
-                    }
-                })()
-                """.trimIndent()
-            } else {
-                """
-                (function() {
-                    var style = document.getElementById('hide-distracting-style');
-                    if (style) style.remove();
-                })()
-                """.trimIndent()
-            }
-            view.evaluateJavascript(distractScript, null)
+    // 3. Page Zoom Level
+    LaunchedEffect(siteZoom, progress == 100) {
+        val zoomScript = """
+            (function() {
+                if (document.body) {
+                    document.body.style.zoom = "$siteZoom";
+                }
+            })()
+        """.trimIndent()
+        webView.evaluateJavascript(zoomScript, null)
+    }
 
-            // Dynamic Reality Filters evaluation
+    // 4. Hide Distracting Items
+    LaunchedEffect(hideDistractingItems, progress == 100) {
+        val distractScript = if (hideDistractingItems) {
+            """
+            (function() {
+                if (!document.getElementById('hide-distracting-style')) {
+                    var style = document.createElement('style');
+                    style.id = 'hide-distracting-style';
+                    style.innerHTML = `
+                        .floating-widget, .social-share, .newsletter-signup, .sidebar-ads,
+                        [class*="newsletter"], [id*="newsletter"], [class*="signup-prompt"],
+                        [class*="sticky-footer"], [class*="floating-buttons"], .share-buttons,
+                        aside, .sidebar, #sidebar, .related-posts, .recommended-content,
+                        [id*="comments"], [class*="comments"], .comment-section {
+                            display: none !important;
+                            visibility: hidden !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+            })()
+            """.trimIndent()
+        } else {
+            """
+            (function() {
+                var style = document.getElementById('hide-distracting-style');
+                if (style) style.remove();
+            })()
+            """.trimIndent()
+        }
+        webView.evaluateJavascript(distractScript, null)
+    }
+
+    // 5. Dynamic Reality Filters (only run when page completes or toggles change)
+    LaunchedEffect(clickbaitOn, sponsoredOn, aiBadgeOn, progress == 100) {
+        if (progress == 100 || (!clickbaitOn && !sponsoredOn && !aiBadgeOn)) {
             val clickbait = clickbaitOn
             val sponsored = sponsoredOn
             val aiBadge = aiBadgeOn
@@ -1566,9 +1500,50 @@ fun TabWebView(
                     }
                 })();
             """.trimIndent()
-            view.evaluateJavascript(realityFiltersScript, null)
+            webView.evaluateJavascript(realityFiltersScript, null)
         }
-    )
-}
-}
+    }
+
+    if (isReaderActive) {
+        com.example.ui.SmartReaderView(
+            tabId = tabId,
+            viewModel = viewModel,
+            modifier = modifier
+        )
+    } else if (isSplit) {
+        com.example.ui.SplitScreenTabWebView(
+            tabId = tabId,
+            viewModel = viewModel,
+            modifier = modifier
+        )
+    } else {
+        androidx.compose.runtime.key(tabId) {
+            AndroidView(
+                factory = { ctx ->
+                    androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
+                        layoutParams = android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        (webView.parent as? android.view.ViewGroup)?.removeView(webView)
+                        addView(webView)
+                        setOnRefreshListener {
+                            webView.reload()
+                        }
+                    }
+                },
+                modifier = modifier.fillMaxSize(),
+                update = { swipeRefreshLayout ->
+                    if (progress >= 100 && swipeRefreshLayout.isRefreshing) {
+                        swipeRefreshLayout.isRefreshing = false
+                    }
+                    if (siteForceDark) {
+                        webView.setBackgroundColor(android.graphics.Color.BLACK)
+                    } else {
+                        webView.setBackgroundColor(android.graphics.Color.WHITE)
+                    }
+                }
+            )
+        }
+    }
 }

@@ -8,34 +8,33 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.rememberAsyncImagePainter
-import com.example.data.HomepageShortcut
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import com.example.data.CapturedMedia
-import kotlinx.coroutines.delay
+import com.example.data.HomepageShortcut
+import com.example.data.VaultItem
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -58,65 +57,28 @@ fun MockDineInStylePage(
     playlistVideos: List<CapturedMedia> = emptyList(),
     onPlayVideo: (CapturedMedia) -> Unit = {},
     onDeleteVideo: (Long) -> Unit = {},
-    allVaultItems: List<com.example.data.VaultItem> = emptyList(),
+    allVaultItems: List<VaultItem> = emptyList(),
     onSeeAllVaultClick: () -> Unit = {},
-    onDeleteVaultItem: (Long) -> Unit = {}
+    onDeleteVaultItem: (Long) -> Unit = {},
+    themeMode: String = "amoled"
 ) {
-    val effectiveTextColor = if (chromeThemeActive) {
-        Color(chromeThemeNtpTextColor)
-    } else if (wallpaperUrl == null) {
-        MaterialTheme.colorScheme.onBackground
-    } else {
-        Color.White
-    }
+    val isDark = themeMode != "light"
+    
+    val effectiveTextColor = if (isDark) Color.White else Color.Black
+    val effectiveSubTextColor = if (isDark) Color(0xFFA1A1AA) else Color(0xFF71717A)
+    val cardBg = if (isDark) Color(0xFF121212) else Color.White
+    val cardBorder = if (isDark) Color(0xFF27272A) else Color(0xFFE4E4E7)
+    val pillBg = if (isDark) Color(0xFF1E1E22) else Color(0xFFF4F4F5)
+    val accentColor = if (isDark) Color.White else Color.Black
+    val onAccentColor = if (isDark) Color.Black else Color.White
 
-    val effectiveIconColor = if (chromeThemeActive) {
-        Color(chromeThemeNtpTextColor).copy(alpha = 0.7f)
-    } else if (wallpaperUrl == null) {
-        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-    } else {
-        Color.White.copy(alpha = 0.8f)
-    }
-
-    var isEditPageOpen by remember { mutableStateOf(false) }
     var isAddShortcutDialogOpen by remember { mutableStateOf(false) }
     var isEditShortcutDialogOpen by remember { mutableStateOf(false) }
     var shortcutToEdit by remember { mutableStateOf<HomepageShortcut?>(null) }
-    var showFavoritesSection by remember { mutableStateOf(true) }
-    var showICloudTabsSection by remember { mutableStateOf(false) }
-    var activeFolderShortcut by remember { mutableStateOf<HomepageShortcut?>(null) }
-    
-    // Manage local dynamic list of iCloud tab cards
-    var iCloudTabsList by remember {
-        mutableStateOf(
-            listOf(
-                ICloudTabItem(
-                    id = 1,
-                    title = "27 features that are on iPad but not on iPhone",
-                    url = "idownloadblog.com",
-                    targetUrl = "https://www.idownloadblog.com",
-                    device = "Ankur's Mac",
-                    imageUrl = "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?q=80&w=300"
-                ),
-                ICloudTabItem(
-                    id = 2,
-                    title = "Apple Trade In - Apple",
-                    url = "apple.com",
-                    targetUrl = "https://www.apple.com/shop/trade-in",
-                    device = "Ankur's iPad",
-                    imageUrl = "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?q=80&w=300"
-                ),
-                ICloudTabItem(
-                    id = 3,
-                    title = "iCloud Calendar",
-                    url = "icloud.com",
-                    targetUrl = "https://www.icloud.com",
-                    device = "Ankur Thakur's iPad",
-                    imageUrl = "https://images.unsplash.com/photo-1506784983877-45594efa4cbe?q=80&w=300"
-                )
-            )
-        )
-    }
+    var isWallpaperDialogOpen by remember { mutableStateOf(false) }
+
+    var searchInput by remember { mutableStateOf("") }
+    var selectedSearchEngine by remember { mutableStateOf("Google") }
 
     val hasBgImage = wallpaperUrl != null || (chromeThemeActive && chromeThemeNtpBgPath != null)
     val bgModel = if (chromeThemeActive && chromeThemeNtpBgPath != null) chromeThemeNtpBgPath else wallpaperUrl
@@ -124,342 +86,399 @@ fun MockDineInStylePage(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                if (chromeThemeActive) Color(chromeThemeNtpBgColor)
-                else if (wallpaperUrl == null) MaterialTheme.colorScheme.background
-                else Color.Black
-            )
+            .background(if (isDark) Color.Black else Color.White)
     ) {
-        // Smoothly fade in/out the background image if custom wallpaper or Chrome theme background is active
-        AnimatedVisibility(
-            visible = hasBgImage,
-            enter = fadeIn(animationSpec = tween(500)),
-            exit = fadeOut(animationSpec = tween(500)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            if (bgModel != null) {
-                Image(
-                    painter = rememberAsyncImagePainter(model = bgModel),
-                    contentDescription = "Custom Wallpaper",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                // Subtle darkening layer on top of wallpaper to guarantee text legibility
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.25f))
-                )
-            }
+        // Subtle background wallpaper with elegant dark gradient overlay
+        if (hasBgImage && bgModel != null) {
+            AsyncImage(
+                model = bgModel,
+                contentDescription = "Custom Wallpaper",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.Black.copy(alpha = 0.65f)
+                            )
+                        )
+                    )
+            )
         }
 
-        // Main scrollable container
+        // Main scrollable Start Page content
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            contentPadding = PaddingValues(top = 28.dp, bottom = 120.dp)
         ) {
-            
-            // --- HEADER SPACING ---
+            // --- 1. BRAND HEADER & SEARCH BAR ---
             item {
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-            
-            // --- FAVORITES SECTION ---
-            if (showFavoritesSection) {
-                item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Browser Logo & Title
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(bottom = 18.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(42.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = pillBg,
+                            border = BorderStroke(1.dp, cardBorder)
                         ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Public,
+                                    contentDescription = "Browser Logo",
+                                    tint = accentColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
                             Text(
-                                text = "Favorites",
-                                color = effectiveTextColor,
+                                text = "Maya Browser",
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.SansSerif
+                                color = effectiveTextColor,
+                                letterSpacing = (-0.5).sp
                             )
-                            
                             Text(
-                                text = "Show All",
-                                color = Color(0xFF007AFF),
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .clickable { isAddShortcutDialogOpen = true }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                text = "Fast, private & secure web",
+                                fontSize = 12.sp,
+                                color = effectiveSubTextColor,
+                                fontWeight = FontWeight.Normal
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Favorites responsive 4-column Grid
-                        FavoritesGrid(
-                            shortcuts = shortcuts,
-                            wallpaperActive = wallpaperUrl != null,
-                            onShortcutClicked = { clickedUrl ->
-                                val corresponding = shortcuts.find { it.url == clickedUrl }
-                                if (corresponding != null && corresponding.title.lowercase() == "developer tools") {
-                                    activeFolderShortcut = corresponding
-                                } else {
-                                    onShortcutClicked(clickedUrl)
-                                }
-                            },
-                            onDeleteShortcut = onDeleteShortcut,
-                            onEditShortcut = { shortcut ->
-                                shortcutToEdit = shortcut
-                                isEditShortcutDialogOpen = true
-                            },
-                            onAddClick = { isAddShortcutDialogOpen = true }
-                        )
                     }
-                }
-            }
 
-            // --- VIDEO PLAYLIST SECTION ---
-            item {
-                val videosToShow = if (playlistVideos.isEmpty()) {
-                    listOf(
-                        CapturedMedia(
-                            id = -1,
-                            url = "https://assets.mixkit.co/videos/preview/mixkit-introducing-apple-vision-pro-mock-48991-large.mp4",
-                            type = "video",
-                            pageTitle = "Introducing Apple Vision Pro",
-                            pageUrl = "https://www.apple.com",
-                            isSaved = true
-                        ),
-                        CapturedMedia(
-                            id = -2,
-                            url = "https://assets.mixkit.co/videos/preview/mixkit-android-14-promo-video-mock-48992-large.mp4",
-                            type = "video",
-                            pageTitle = "We're head over heels for #Android14 💚",
-                            pageUrl = "https://www.android.com",
-                            isSaved = true
-                        ),
-                        CapturedMedia(
-                            id = -3,
-                            url = "https://assets.mixkit.co/videos/preview/mixkit-iphone-14-hello-yellow-mock-48993-large.mp4",
-                            type = "video",
-                            pageTitle = "iPhone 14 & iPhone 14 Plus | Hello Yellow | Apple",
-                            pageUrl = "https://www.apple.com",
-                            isSaved = true
-                        ),
-                        CapturedMedia(
-                            id = -4,
-                            url = "https://assets.mixkit.co/videos/preview/mixkit-apple-arcade-extraordinary-mock-48994-large.mp4",
-                            type = "video",
-                            pageTitle = "Apple Arcade Trailer - Play extraordinary",
-                            pageUrl = "https://www.apple.com",
-                            isSaved = true
-                        )
-                    )
-                } else {
-                    playlistVideos
-                }
-
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
+                    // Modern Integrated Search Bar Card
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .shadow(
+                                elevation = 4.dp,
+                                shape = RoundedCornerShape(24.dp),
+                                spotColor = Color.Black.copy(alpha = 0.12f)
+                            ),
+                        shape = RoundedCornerShape(24.dp),
+                        color = cardBg,
+                        border = BorderStroke(1.dp, cardBorder)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Playlist",
-                                color = effectiveTextColor,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = "More",
-                                tint = effectiveIconColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            videosToShow.filterIndexed { idx, _ -> idx % 2 == 0 }.forEach { video ->
-                                PlaylistVideoCard(
-                                    video = video,
-                                    effectiveTextColor = effectiveTextColor,
-                                    onPlayVideo = onPlayVideo,
-                                    onDeleteVideo = onDeleteVideo
-                                )
-                            }
-                        }
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            videosToShow.filterIndexed { idx, _ -> idx % 2 != 0 }.forEach { video ->
-                                PlaylistVideoCard(
-                                    video = video,
-                                    effectiveTextColor = effectiveTextColor,
-                                    onPlayVideo = onPlayVideo,
-                                    onDeleteVideo = onDeleteVideo
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- ICLOUD TABS SECTION ---
-            if (showICloudTabsSection) {
-                item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp),
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Cloud,
-                                contentDescription = "iCloud",
-                                tint = effectiveIconColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "iCloud Tabs",
-                                color = effectiveTextColor,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Stack of elegant custom tab preview cards
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            iCloudTabsList.forEachIndexed { index, tab ->
-                                ICloudTabCard(
-                                    tab = tab,
-                                    index = index,
-                                    wallpaperActive = wallpaperUrl != null,
-                                    onClick = { onShortcutClicked(tab.targetUrl) },
-                                    onDelete = {
-                                        iCloudTabsList = iCloudTabsList.filter { it.id != tab.id }
+                            // Search Engine Switcher Badge
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = pillBg,
+                                modifier = Modifier
+                                    .clickable {
+                                        selectedSearchEngine = when (selectedSearchEngine) {
+                                            "Google" -> "DuckDuckGo"
+                                            "DuckDuckGo" -> "Bing"
+                                            else -> "Google"
+                                        }
                                     }
+                                    .padding(horizontal = 2.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Engine",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = selectedSearchEngine,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = effectiveTextColor
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Search Text Input
+                            TextField(
+                                value = searchInput,
+                                onValueChange = { searchInput = it },
+                                placeholder = {
+                                    Text(
+                                        text = "Search or type web address...",
+                                        fontSize = 14.sp,
+                                        color = effectiveSubTextColor.copy(alpha = 0.6f)
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    focusedTextColor = effectiveTextColor,
+                                    unfocusedTextColor = effectiveTextColor
                                 )
+                            )
+
+                            // Submit / Go button
+                            if (searchInput.isNotBlank()) {
+                                IconButton(
+                                    onClick = {
+                                        val query = searchInput.trim()
+                                        val targetUrl = if (query.startsWith("http://") || query.startsWith("https://") || (query.contains(".") && !query.contains(" "))) {
+                                            if (!query.startsWith("http://") && !query.startsWith("https://")) "https://$query" else query
+                                        } else {
+                                            when (selectedSearchEngine) {
+                                                "DuckDuckGo" -> "https://duckduckgo.com/?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                                                "Bing" -> "https://www.bing.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                                                else -> "https://www.google.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                                            }
+                                        }
+                                        onShortcutClicked(targetUrl)
+                                    },
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = accentColor,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowForward,
+                                                contentDescription = "Search",
+                                                tint = onAccentColor,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // --- NEWS FEED SECTION ---
-            if (showNewsSection) {
-                item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+            // --- 2. PRIVACY & PERFORMANCE SHIELDS CARD ---
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = cardBg,
+                    border = BorderStroke(1.dp, cardBorder)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Article,
-                                    contentDescription = "News",
-                                    tint = effectiveIconColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "World News",
-                                    color = effectiveTextColor,
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.SansSerif
-                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = pillBg,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Shield,
+                                            contentDescription = "Protection",
+                                            tint = accentColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Privacy Shields Active",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = effectiveTextColor
+                                    )
+                                    Text(
+                                        text = "Ads, trackers & cryptominers blocked",
+                                        fontSize = 11.sp,
+                                        color = effectiveSubTextColor
+                                    )
+                                }
                             }
-                            // Elegant option to hide/close the news section instantly!
-                            IconButton(
-                                onClick = { onShowNewsSectionChange(false) },
-                                modifier = Modifier.size(32.dp)
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = pillBg
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Hide News Feed",
-                                    tint = if (wallpaperUrl == null) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(18.dp)
+                                Text(
+                                    text = "SECURE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = accentColor,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                        // Curated feed of real looking, beautifully designed tech and global news!
-                        val newsFeed = remember {
-                            listOf(
-                                NewsArticle(
-                                    id = "news_1",
-                                    title = "Google AI Studio powers elite browser customizations with Jetpack Compose",
-                                    summary = "A new paradigm in mobile browser design leverages ultra-responsive local state engines, advanced Material Design 3 guidelines, and high-performance layout rendering.",
-                                    publisher = "TechCrunch",
-                                    timeAgo = "10m ago",
-                                    imageUrl = "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=400"
-                                ),
-                                NewsArticle(
-                                    id = "news_2",
-                                    title = "Mediterranean coastlines see record summer travel as remote workers relocate",
-                                    summary = "Charming seaside towns across Greece and Italy adapt to a wave of digital nomads seeking warm climates, fast networks, and serene working backdrops.",
-                                    publisher = "National Geographic",
-                                    timeAgo = "1h ago",
-                                    imageUrl = "https://images.unsplash.com/photo-1513694203232-719a280e022f?q=80&w=400"
-                                ),
-                                NewsArticle(
-                                    id = "news_3",
-                                    title = "Breakthrough in sustainable energy: Solar-slate materials drop 40% in cost",
-                                    summary = "New manufacturing processes for structural solar slates make standard rooftops capable of capturing premium solar energy at competitive building prices.",
-                                    publisher = "Reuters",
-                                    timeAgo = "3h ago",
-                                    imageUrl = "https://images.unsplash.com/photo-1509391366360-2e959784a276?q=80&w=400"
-                                ),
-                                NewsArticle(
-                                    id = "news_4",
-                                    title = "Minimalist slate designs trending across modern digital interfaces",
-                                    summary = "Top interface designers are shifting back to spacious typography, high-contrast dark tones, and subtle spring-based movement to enhance user interaction.",
-                                    publisher = "The Verge",
-                                    timeAgo = "5h ago",
-                                    imageUrl = "https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?q=80&w=400"
-                                )
+                        // Stats counters row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            StatPill(
+                                count = "99.8%",
+                                label = "Fast Engine",
+                                icon = Icons.Default.Speed,
+                                tint = accentColor,
+                                isDark = isDark,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            StatPill(
+                                count = "Active",
+                                label = "Anti-Tracking",
+                                icon = Icons.Default.Security,
+                                tint = accentColor,
+                                isDark = isDark,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            StatPill(
+                                count = "HTTPS",
+                                label = "Encrypted",
+                                icon = Icons.Default.Lock,
+                                tint = accentColor,
+                                isDark = isDark,
+                                modifier = Modifier.weight(1f)
                             )
                         }
+                    }
+                }
+            }
 
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.fillMaxWidth()
+            // --- 2.5 FEATURE HUBS (Category Lists, Private Vault & Telegram Media Saver) ---
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Lists & Vault Card
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onSeeAllVaultClick() },
+                        shape = RoundedCornerShape(16.dp),
+                        color = cardBg,
+                        border = BorderStroke(1.dp, cardBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            newsFeed.forEach { article ->
-                                NewsCard(
-                                    article = article,
-                                    wallpaperActive = wallpaperUrl != null,
-                                    onClick = { onShortcutClicked(article.articleUrl) }
+                            Surface(
+                                shape = CircleShape,
+                                color = pillBg,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.ViewList,
+                                        contentDescription = "Lists",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Lists & Vault",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = effectiveTextColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Categories & Media",
+                                    fontSize = 10.sp,
+                                    color = effectiveSubTextColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    // Telegram Hub Card
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onSeeAllVaultClick() },
+                        shape = RoundedCornerShape(16.dp),
+                        color = cardBg,
+                        border = BorderStroke(1.dp, cardBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = pillBg,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = "Telegram",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Telegram Hub",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = effectiveTextColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Channels & Media",
+                                    fontSize = 10.sp,
+                                    color = effectiveSubTextColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -467,474 +486,388 @@ fun MockDineInStylePage(
                 }
             }
 
-            // --- RECENTLY ADDED VAULT CONTENT SECTION ---
+            // --- 3. FAVORITES / QUICK ACCESS GRID ---
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Quick Access",
+                            color = effectiveTextColor,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "+ Add Site",
+                                color = accentColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { isAddShortcutDialogOpen = true }
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { isWallpaperDialogOpen = true },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Wallpaper,
+                                    contentDescription = "Wallpaper",
+                                    tint = effectiveSubTextColor,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    CleanFavoritesGrid(
+                        shortcuts = shortcuts,
+                        wallpaperActive = wallpaperUrl != null,
+                        isDark = isDark,
+                        onShortcutClicked = onShortcutClicked,
+                        onDeleteShortcut = onDeleteShortcut,
+                        onEditShortcut = {
+                            shortcutToEdit = it
+                            isEditShortcutDialogOpen = true
+                        },
+                        onAddClick = { isAddShortcutDialogOpen = true }
+                    )
+                }
+            }
+
+            // --- 4. REAL SAVED VIDEOS (Only shown if user actually saved media) ---
+            if (playlistVideos.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.VideoLibrary,
+                                    contentDescription = null,
+                                    tint = Color(0xFFEC4899),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Saved Videos",
+                                    color = effectiveTextColor,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Text(
+                                text = "${playlistVideos.size} videos",
+                                color = effectiveSubTextColor,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            playlistVideos.take(5).forEach { video ->
+                                RealSavedVideoItem(
+                                    video = video,
+                                    isDark = isDark,
+                                    effectiveTextColor = effectiveTextColor,
+                                    effectiveSubTextColor = effectiveSubTextColor,
+                                    onPlayVideo = onPlayVideo,
+                                    onDeleteVideo = onDeleteVideo
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- 5. PRIVATE VAULT GLANCE (Only shown if items exist) ---
             if (allVaultItems.isNotEmpty()) {
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Private Vault",
+                                    color = effectiveTextColor,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             Text(
-                                text = "Recently added Content",
-                                color = effectiveTextColor,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                            
-                            Text(
-                                text = "See all",
-                                color = Color(0xFF007AFF),
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium,
+                                text = "View All",
+                                color = accentColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(6.dp))
                                     .clickable { onSeeAllVaultClick() }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(horizontal = 2.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(allVaultItems.take(5)) { vaultItem ->
-                                Box(
+                            items(allVaultItems.take(6)) { vaultItem ->
+                                Surface(
                                     modifier = Modifier
-                                        .width(160.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(if (wallpaperUrl == null) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f))
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (wallpaperUrl == null) MaterialTheme.colorScheme.outline.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.15f),
-                                            shape = RoundedCornerShape(16.dp)
-                                        )
-                                        .clickable { onSeeAllVaultClick() }
+                                        .width(130.dp)
+                                        .clickable { onSeeAllVaultClick() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = cardBg,
+                                    border = BorderStroke(1.dp, cardBorder)
                                 ) {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(110.dp)
+                                                .height(70.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(pillBg),
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Image(
-                                                painter = rememberAsyncImagePainter(model = vaultItem.url),
-                                                contentDescription = vaultItem.title,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                            
-                                            // Badge for category
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.TopStart)
-                                                    .padding(8.dp)
-                                                    .background(
-                                                        color = when (vaultItem.collectionName.lowercase()) {
-                                                            "sports" -> Color(0xFFEF4444).copy(alpha = 0.85f)
-                                                            "food" -> Color(0xFF10B981).copy(alpha = 0.85f)
-                                                            "goals" -> Color(0xFF8B5CF6).copy(alpha = 0.85f)
-                                                            "events" -> Color(0xFFF59E0B).copy(alpha = 0.85f)
-                                                            "shopping" -> Color(0xFF3B82F6).copy(alpha = 0.85f)
-                                                            else -> Color(0xFF6B7280).copy(alpha = 0.85f)
-                                                        },
-                                                        shape = RoundedCornerShape(8.dp)
-                                                    )
-                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = vaultItem.collectionName,
-                                                    color = Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold
+                                            if (vaultItem.url.isNotBlank()) {
+                                                AsyncImage(
+                                                    model = vaultItem.url,
+                                                    contentDescription = vaultItem.title,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.Folder,
+                                                    contentDescription = null,
+                                                    tint = accentColor,
+                                                    modifier = Modifier.size(28.dp)
                                                 )
                                             }
                                         }
-                                        
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(10.dp)
-                                        ) {
-                                            Text(
-                                                text = vaultItem.title,
-                                                color = effectiveTextColor,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            
-                                            Text(
-                                                text = vaultItem.extraData ?: "Saved",
-                                                color = effectiveTextColor.copy(alpha = 0.6f),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = vaultItem.title,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = effectiveTextColor,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
-
-            // --- BOTTOM EDIT / CUSTOMIZATION BUTTON ---
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 40.dp, bottom = 20.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Button(
-                        onClick = { isEditPageOpen = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (wallpaperUrl == null) MaterialTheme.colorScheme.surfaceVariant else Color.White.copy(alpha = 0.25f),
-                            contentColor = if (wallpaperUrl == null) MaterialTheme.colorScheme.primary else Color.White
-                        ),
-                        shape = RoundedCornerShape(24.dp),
-                        border = if (wallpaperUrl == null) BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)) else BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
-                        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Brush,
-                            contentDescription = "Edit Background",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Edit Start Page",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-        }
-
-        // --- CUSTOM SHORTCUT GROUP / FOLDER DIALOG ---
-        if (activeFolderShortcut != null) {
-            Dialog(onDismissRequest = { activeFolderShortcut = null }) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth(0.95f)
-                        .clip(RoundedCornerShape(28.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(28.dp)),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (wallpaperUrl != null) Color(0xFF1E293B).copy(alpha = 0.95f) else MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(24.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = activeFolderShortcut!!.title,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = effectiveTextColor,
-                            modifier = Modifier.padding(bottom = 24.dp)
-                        )
-                        
-                        // Row 1
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            // Instagram
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clickable {
-                                        onShortcutClicked("https://www.instagram.com")
-                                        activeFolderShortcut = null
-                                    }
-                                    .padding(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(60.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Brush.linearGradient(listOf(Color(0xFF818CF8), Color(0xFFEC4899), Color(0xFFF59E0B)))),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("I", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("Instagram", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
-                            }
-                            
-                            // Telegram
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clickable {
-                                        onShortcutClicked("https://telegram.org")
-                                        activeFolderShortcut = null
-                                    }
-                                    .padding(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(60.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFF229ED9)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Send, null, tint = Color.White, modifier = Modifier.size(28.dp))
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("Telegram", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // Row 2
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            // Vimeo
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clickable {
-                                        onShortcutClicked("https://vimeo.com")
-                                        activeFolderShortcut = null
-                                    }
-                                    .padding(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(60.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFF1AB7EA)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("V", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("Vimeo", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
-                            }
-                            
-                            // Amazon
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clickable {
-                                        onShortcutClicked("https://www.amazon.com")
-                                        activeFolderShortcut = null
-                                    }
-                                    .padding(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(60.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color(0xFFFF9900)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("a", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Serif)
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("Amazon", fontSize = 12.sp, color = effectiveTextColor, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        TextButton(
-                            onClick = { activeFolderShortcut = null },
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFC23E50))
-                        ) {
-                            Text("Close Group", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
                     }
                 }
             }
         }
+    }
 
-        // --- CUSTOM WALLPAPER EDIT DRAWER / DIALOG ---
-        if (isEditPageOpen) {
-            EditStartPageDialog(
-                currentWallpaperUrl = wallpaperUrl,
-                showFavorites = showFavoritesSection,
-                showICloudTabs = showICloudTabsSection,
-                showNews = showNewsSection,
-                onShowFavoritesChange = { showFavoritesSection = it },
-                onShowICloudTabsChange = { showICloudTabsSection = it },
-                onShowNewsChange = onShowNewsSectionChange,
-                onDismiss = { isEditPageOpen = false },
-                onSelectWallpaper = { url ->
-                    onWallpaperChanged(url)
-                }
+    // Add Shortcut Dialog
+    if (isAddShortcutDialogOpen) {
+        CleanAddShortcutDialog(
+            onDismiss = { isAddShortcutDialogOpen = false },
+            onAdd = { title, url ->
+                onAddShortcut(title, url, null)
+                isAddShortcutDialogOpen = false
+            }
+        )
+    }
+
+    // Edit Shortcut Dialog
+    if (isEditShortcutDialogOpen && shortcutToEdit != null) {
+        CleanEditShortcutDialog(
+            shortcut = shortcutToEdit!!,
+            onDismiss = {
+                isEditShortcutDialogOpen = false
+                shortcutToEdit = null
+            },
+            onSave = { id, title, url ->
+                onUpdateShortcut(id, title, url, null)
+                isEditShortcutDialogOpen = false
+                shortcutToEdit = null
+            },
+            onDelete = { id ->
+                onDeleteShortcut(id)
+                isEditShortcutDialogOpen = false
+                shortcutToEdit = null
+            }
+        )
+    }
+
+    // Wallpaper Dialog
+    if (isWallpaperDialogOpen) {
+        CleanWallpaperDialog(
+            currentWallpaper = wallpaperUrl,
+            onDismiss = { isWallpaperDialogOpen = false },
+            onSelectWallpaper = {
+                onWallpaperChanged(it)
+                isWallpaperDialogOpen = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun StatPill(
+    count: String,
+    label: String,
+    icon: ImageVector,
+    tint: Color,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = tint.copy(alpha = if (isDark) 0.12f else 0.08f),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(18.dp)
             )
-        }
-
-        // --- ADD CUSTOM WEBSITE SHORTCUT DIALOG ---
-        if (isAddShortcutDialogOpen) {
-            AddShortcutDialog(
-                onDismiss = { isAddShortcutDialogOpen = false },
-                onAddShortcut = { title, url, iconUrl ->
-                    onAddShortcut(title, url, iconUrl)
-                }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = count,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = tint
             )
-        }
-
-        // --- EDIT CUSTOM WEBSITE SHORTCUT DIALOG ---
-        if (isEditShortcutDialogOpen) {
-            shortcutToEdit?.let { shortcut ->
-                EditShortcutDialog(
-                    shortcut = shortcut,
-                    onDismiss = {
-                        isEditShortcutDialogOpen = false
-                        shortcutToEdit = null
-                    },
-                    onUpdateShortcut = onUpdateShortcut
-                )
-            }
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                color = if (isDark) Color.White.copy(alpha = 0.6f) else Color(0xFF475569),
+                maxLines = 1
+            )
         }
     }
 }
 
-// Data model for custom iCloud tabs simulation
-data class ICloudTabItem(
-    val id: Int,
-    val title: String,
-    val url: String,
-    val targetUrl: String,
-    val device: String,
-    val imageUrl: String
-)
-
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FavoritesGrid(
+fun CleanFavoritesGrid(
     shortcuts: List<HomepageShortcut>,
     wallpaperActive: Boolean,
+    isDark: Boolean,
     onShortcutClicked: (String) -> Unit,
     onDeleteShortcut: (Long) -> Unit,
     onEditShortcut: (HomepageShortcut) -> Unit,
     onAddClick: () -> Unit
 ) {
-    val totalCount = shortcuts.size + 1
+    // Standard default popular shortcuts if list is completely empty
+    val displayShortcuts = if (shortcuts.isEmpty()) {
+        listOf(
+            HomepageShortcut(id = -1, title = "Google", url = "https://www.google.com"),
+            HomepageShortcut(id = -2, title = "YouTube", url = "https://www.youtube.com"),
+            HomepageShortcut(id = -3, title = "Wikipedia", url = "https://www.wikipedia.org"),
+            HomepageShortcut(id = -4, title = "Reddit", url = "https://www.reddit.com"),
+            HomepageShortcut(id = -5, title = "GitHub", url = "https://www.github.com"),
+            HomepageShortcut(id = -6, title = "DuckDuckGo", url = "https://duckduckgo.com"),
+            HomepageShortcut(id = -7, title = "Amazon", url = "https://www.amazon.com")
+        )
+    } else {
+        shortcuts
+    }
+
+    val totalCount = displayShortcuts.size + 1
     val rowCount = (totalCount + 3) / 4
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         for (rowIndex in 0 until rowCount) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 for (colIndex in 0..3) {
                     val globalIndex = rowIndex * 4 + colIndex
-                    if (globalIndex < shortcuts.size) {
-                        val shortcut = shortcuts[globalIndex]
-                        
-                        // Staggered animated scale on first launch
-                        var targetScale by remember { mutableStateOf(0.7f) }
-                        var targetAlpha by remember { mutableStateOf(0f) }
-                        
-                        LaunchedEffect(shortcut.id) {
-                            delay(globalIndex * 40L)
-                            targetScale = 1.0f
-                            targetAlpha = 1.0f
-                        }
-
-                        val animatedScale by animateFloatAsState(
-                            targetValue = targetScale,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessLow
-                            ),
-                            label = "scale"
-                        )
-                        
-                        val animatedAlpha by animateFloatAsState(
-                            targetValue = targetAlpha,
-                            animationSpec = tween(durationMillis = 300),
-                            label = "alpha"
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .graphicsLayer {
-                                    scaleX = animatedScale
-                                    scaleY = animatedScale
-                                    alpha = animatedAlpha
-                                }
-                        ) {
-                            FavoriteTileItem(
+                    if (globalIndex < displayShortcuts.size) {
+                        val shortcut = displayShortcuts[globalIndex]
+                        Box(modifier = Modifier.weight(1f)) {
+                            CleanFavoriteTile(
                                 shortcut = shortcut,
                                 wallpaperActive = wallpaperActive,
-                                onClicked = { onShortcutClicked(shortcut.url) },
-                                onDelete = { onDeleteShortcut(shortcut.id) },
-                                onEdit = { onEditShortcut(shortcut) }
+                                isDark = isDark,
+                                onClick = { onShortcutClicked(shortcut.url) },
+                                onLongClick = {
+                                    if (shortcut.id > 0) onEditShortcut(shortcut)
+                                }
                             )
                         }
-                    } else if (globalIndex == shortcuts.size) {
-                        // Always show beautiful "+" button to add website in the very next slot
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                    } else if (globalIndex == displayShortcuts.size) {
+                        // Add Button
+                        Box(modifier = Modifier.weight(1f)) {
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onAddClick() }
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .clickable { onAddClick() },
+                                shape = RoundedCornerShape(18.dp),
+                                color = if (isDark) Color(0xFF121212) else Color.White,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isDark) Color(0xFF27272A) else Color(0xFFE4E4E7)
+                                )
                             ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .aspectRatio(1f)
-                                        .fillMaxWidth(0.85f)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant)
-                                        .border(
-                                            width = 0.5.dp,
-                                            color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                            shape = RoundedCornerShape(16.dp)
-                                        )
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "Add Shortcut",
-                                        tint = if (wallpaperActive) Color.White else MaterialTheme.colorScheme.onSurface,
+                                        tint = if (isDark) Color.White else Color.Black,
                                         modifier = Modifier.size(24.dp)
                                     )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Add",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isDark) Color.White.copy(alpha = 0.8f) else Color(0xFF475569)
+                                    )
                                 }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "Add",
-                                    color = if (wallpaperActive) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
                     } else {
-                        // Fill remaining spaces with blank Spacer to keep alignment straight
                         Spacer(modifier = Modifier.weight(1f))
                     }
                 }
@@ -945,1168 +878,360 @@ fun FavoritesGrid(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FavoriteTileItem(
+private fun CleanFavoriteTile(
     shortcut: HomepageShortcut,
     wallpaperActive: Boolean,
-    onClicked: () -> Unit,
-    onDelete: () -> Unit,
-    onEdit: () -> Unit
+    isDark: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
-    var isPressed by remember { mutableStateOf(false) }
-    var isLongPressed by remember { mutableStateOf(false) }
-
-    val scaleState by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1.0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "tile_press"
-    )
+    val tileBg = if (isDark) Color(0xFF121212) else Color.White
+    val tileBorder = if (isDark) Color(0xFF27272A) else Color(0xFFE4E4E7)
+    val textPrimary = if (isDark) Color.White else Color.Black
+    val iconFallbackBg = if (isDark) Color(0xFF1E1E22) else Color(0xFFF4F4F5)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxWidth()
-            .scale(scaleState)
-            .pointerInput(shortcut.id) {
+            .pointerInput(Unit) {
                 detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        tryAwaitRelease()
-                        isPressed = false
-                    },
-                    onTap = { onClicked() },
-                    onLongPress = {
-                        isLongPressed = true
-                    }
+                    onTap = { onClick() },
+                    onLongPress = { onLongClick() }
                 )
             }
     ) {
-        Box(
+        Surface(
             modifier = Modifier
+                .fillMaxWidth()
                 .aspectRatio(1f)
-                .fillMaxWidth(0.85f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (wallpaperActive) Color.White.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
-                .border(
-                    width = 0.5.dp,
-                    color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(16.dp)
+                .shadow(
+                    elevation = 2.dp,
+                    shape = RoundedCornerShape(18.dp),
+                    spotColor = Color.Black.copy(alpha = 0.15f)
                 ),
-            contentAlignment = Alignment.Center
+            shape = RoundedCornerShape(18.dp),
+            color = tileBg,
+            border = BorderStroke(1.dp, tileBorder)
         ) {
-            if (!shortcut.iconUrl.isNullOrBlank()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = rememberAsyncImagePainter(model = shortcut.iconUrl),
+            Box(contentAlignment = Alignment.Center) {
+                if (!shortcut.iconUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = shortcut.iconUrl,
                         contentDescription = shortcut.title,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(16.dp)),
-                        contentScale = ContentScale.Crop
+                            .size(28.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Fit
                     )
-                }
-            } else {
-                // Generate visual styles identical to Apple's Safari favorites
-                when (shortcut.title.lowercase()) {
-                    "duckduckgo" -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFFDE5833)),
-                            contentAlignment = Alignment.Center
-                        ) {
+                } else {
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = iconFallbackBg
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Text(
-                                text = "D",
-                                color = Color.White,
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                        }
-                    }
-                    "icloud" -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Cloud,
-                                contentDescription = "iCloud",
-                                tint = Color(0xFF007AFF),
-                                modifier = Modifier.size(34.dp)
-                            )
-                        }
-                    }
-                    "microsoft" -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFFF25022)))
-                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFF7FBA00)))
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFF00A4EF)))
-                                    Box(modifier = Modifier.size(12.dp).background(Color(0xFFFFB900)))
-                                }
-                            }
-                        }
-                    }
-                    "microsoft 365" -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Hexagon,
-                                contentDescription = "Microsoft 365",
-                                tint = Color(0xFFE33E2B),
-                                modifier = Modifier.size(34.dp)
-                            )
-                        }
-                    }
-                    "telegram" -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFF229ED9)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Send,
-                                contentDescription = "Telegram",
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-                    }
-                    "developer tools" -> {
-                        // 2x2 grid of 4 mini-icons as seen in folder mockup
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Brush.linearGradient(listOf(Color(0xFF818CF8), Color(0xFFEC4899), Color(0xFFF59E0B)))),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("I", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xFF229ED9)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("T", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xFF1AB7EA)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("V", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xFFFF9900)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("A", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                    "amazon" -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFFFF9900)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "a",
-                                color = Color.White,
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Serif
-                            )
-                        }
-                    }
-                    "idb", "ankur idb" -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "i",
-                                    color = Color(0xFF007AFF),
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.SansSerif
-                                )
-                                Text(
-                                    text = "DB",
-                                    color = Color.Black,
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.SansSerif
-                                )
-                            }
-                        }
-                    }
-                    "increase platelet count..." -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Brush.linearGradient(listOf(Color(0xFF0F2027), Color(0xFF203A43)))),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "MNT",
-                                color = Color.White,
+                                text = shortcut.title.take(1).uppercase(),
                                 fontSize = 18.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                    }
-                    "thrombocytopenia (lo..." -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.White)
-                            .padding(4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "MAYO",
-                                color = Color(0xFF1A365D),
-                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
-                            Text(
-                                text = "CLINIC",
-                                color = Color(0xFF1A365D),
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
+                                color = textPrimary
                             )
                         }
                     }
                 }
-                "apple" -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFF2F2F7)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Clean minimalist Apple symbol simulation
-                        Text(
-                            text = "",
-                            color = Color.DarkGray,
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-                "wikipedia" -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.White),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "W",
-                            color = Color.Black,
-                            fontSize = 30.sp,
-                            fontWeight = FontWeight.Light,
-                            fontFamily = FontFamily.Serif
-                        )
-                    }
-                }
-                "google" -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.White),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Draw Google multicolored clean stylized "G" logo
-                        Text(
-                            text = "G",
-                            color = Color(0xFF4285F4),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                    }
-                }
-                else -> {
-                    // Custom user added shortcuts: show beautiful single letter avatar
-                    val letter = shortcut.title.firstOrNull()?.uppercaseChar() ?: 'W'
-                    val bgGradient = remember(shortcut.id) {
-                        val hues = listOf(
-                            listOf(Color(0xFF4A00E0), Color(0xFF8E2DE2)),
-                            listOf(Color(0xFF11998e), Color(0xFF38ef7d)),
-                            listOf(Color(0xFF00c6ff), Color(0xFF0072ff)),
-                            listOf(Color(0xFFfc4a1a), Color(0xFFf7b733)),
-                            listOf(Color(0xFFed1c24), Color(0xFFfdb813))
-                        )
-                        hues[(shortcut.id % hues.size).toInt()]
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Brush.verticalGradient(bgGradient)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = letter.toString(),
-                            color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-
-        // Small red delete badge if long-pressed or customizable
-            if (isLongPressed) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = (-4).dp, y = (-4).dp)
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFF3B30))
-                        .clickable {
-                            onDelete()
-                            isLongPressed = false
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Delete shortcut",
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 4.dp, y = (-4).dp)
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF007AFF))
-                        .clickable {
-                            onEdit()
-                            isLongPressed = false
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit shortcut",
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
-                
-                // Clear long press state on clicking outside/background tap
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Transparent)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { isLongPressed = false })
-                        }
-                )
             }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Label
         Text(
-            text = when (shortcut.title) {
-                "Increase platelet count..." -> "Increase..."
-                "Thrombocytopenia (lo..." -> "Thrombocy..."
-                else -> shortcut.title
-            },
-            color = if (wallpaperActive) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+            text = shortcut.title,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
+            color = textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(0.9f)
+            textAlign = TextAlign.Center
         )
     }
 }
 
 @Composable
-fun ICloudTabCard(
-    tab: ICloudTabItem,
-    index: Int,
-    wallpaperActive: Boolean,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
-) {
-    var isPressed by remember { mutableStateOf(false) }
-    
-    // Smooth initial reveal slide anim
-    var offsetTarget by remember { mutableStateOf(50.dp) }
-    var alphaTarget by remember { mutableStateOf(0f) }
-    
-    LaunchedEffect(Unit) {
-        delay(150L + index * 60L) // Staggered reveal after Favorites
-        offsetTarget = 0.dp
-        alphaTarget = 1.0f
-    }
-    
-    val animatedOffset by animateDpAsState(
-        targetValue = offsetTarget,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
-        label = "offset"
-    )
-    val animatedAlpha by animateFloatAsState(
-        targetValue = alphaTarget,
-        animationSpec = tween(durationMillis = 350),
-        label = "alpha"
-    )
-    
-    val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1.0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "press"
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .offset(y = animatedOffset)
-            .scale(pressScale)
-            .graphicsLayer { alpha = animatedAlpha }
-            .pointerInput(tab.id) {
-                detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        tryAwaitRelease()
-                        isPressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (wallpaperActive) Color.White.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
-        ),
-        border = BorderStroke(
-            width = 0.5.dp,
-            color = if (wallpaperActive) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (wallpaperActive) 0.dp else 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left webpreview image thumbnail
-            Card(
-                modifier = Modifier
-                    .size(54.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Image(
-                    painter = rememberAsyncImagePainter(model = tab.imageUrl),
-                    contentDescription = tab.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            // Text contents
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = tab.title,
-                    color = if (wallpaperActive) Color.White else MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = tab.url,
-                    color = if (wallpaperActive) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Normal
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Cloud,
-                        contentDescription = "Cloud syncd",
-                        tint = if (wallpaperActive) Color.White.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "on ${tab.device}",
-                        color = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Light
-                    )
-                }
-            }
-            
-            // Delete close tab button
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Remove card",
-                    tint = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
-}
-
-data class NewsArticle(
-    val id: String,
-    val title: String,
-    val summary: String,
-    val publisher: String,
-    val timeAgo: String,
-    val imageUrl: String,
-    val articleUrl: String = "https://www.google.com/search?q=" + title.replace(" ", "+")
-)
-
-@Composable
-fun NewsCard(
-    article: NewsArticle,
-    wallpaperActive: Boolean,
-    onClick: () -> Unit
-) {
-    var isPressed by remember { mutableStateOf(false) }
-    val scaleState by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1.0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "news_press"
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .scale(scaleState)
-            .pointerInput(article.id) {
-                detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        tryAwaitRelease()
-                        isPressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (wallpaperActive) Color.Black.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceVariant
-        ),
-        border = BorderStroke(
-            width = 0.5.dp,
-            color = if (wallpaperActive) Color.White.copy(alpha = 0.15f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = article.publisher,
-                        color = if (wallpaperActive) Color(0xFFD4E157) else MaterialTheme.colorScheme.primary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "•",
-                        color = if (wallpaperActive) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                        fontSize = 11.sp
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = article.timeAgo,
-                        color = if (wallpaperActive) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        fontSize = 11.sp
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = article.title,
-                    color = if (wallpaperActive) Color.White else MaterialTheme.colorScheme.onSurface,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = article.summary,
-                    color = if (wallpaperActive) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                    fontSize = 12.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Image(
-                painter = rememberAsyncImagePainter(model = article.imageUrl),
-                contentDescription = article.title,
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(10.dp)),
-                contentScale = ContentScale.Crop
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EditStartPageDialog(
-    currentWallpaperUrl: String?,
-    showFavorites: Boolean,
-    showICloudTabs: Boolean,
-    showNews: Boolean,
-    onShowFavoritesChange: (Boolean) -> Unit,
-    onShowICloudTabsChange: (Boolean) -> Unit,
-    onShowNewsChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-    onSelectWallpaper: (String?) -> Unit
-) {
-    val wallpapers = listOf(
-        Pair("None", null),
-        Pair("Mediterranean", "https://images.unsplash.com/photo-1513694203232-719a280e022f?q=80&w=1200"),
-        Pair("Sunset Peak", "https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?q=80&w=1200"),
-        Pair("Warm Stars", "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?q=80&w=1200"),
-        Pair("Forest Mist", "https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=1200"),
-        Pair("Dark Slate", "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200")
-    )
-    
-    var customUrlInput by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Customize Start Page",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    text = "Configure layouts, toggle sections, and choose an ambient iOS wallpaper backdrop.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-
-                // Layout Toggles
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Favorites Section",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Switch(
-                            checked = showFavorites,
-                            onCheckedChange = onShowFavoritesChange
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "World News Section",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Switch(
-                            checked = showNews,
-                            onCheckedChange = onShowNewsChange
-                        )
-                    }
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-
-                // Wallpaper selector header
-                Text(
-                    text = "Select Background Wallpaper",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                // Presets Horizontal Row
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(wallpapers) { (name, url) ->
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable { onSelectWallpaper(url) }
-                                .width(70.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (url == null) Color(0xFFF2F2F7) else Color.DarkGray)
-                                    .border(
-                                        width = if (currentWallpaperUrl == url) 2.5.dp else 0.5.dp,
-                                        color = if (currentWallpaperUrl == url) MaterialTheme.colorScheme.primary else Color.LightGray,
-                                        shape = RoundedCornerShape(8.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (url != null) {
-                                    Image(
-                                        painter = rememberAsyncImagePainter(model = url),
-                                        contentDescription = name,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Block,
-                                        contentDescription = "None",
-                                        tint = Color.Gray,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = name,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Normal,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-
-                // Custom URL Wallpaper Input
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "Or enter custom Image URL:",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        OutlinedTextField(
-                            value = customUrlInput,
-                            onValueChange = { customUrlInput = it },
-                            placeholder = { Text("https://example.com/art.jpg") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
-                        )
-                        Button(
-                            onClick = {
-                                if (customUrlInput.isNotBlank()) {
-                                    onSelectWallpaper(customUrlInput.trim())
-                                    customUrlInput = ""
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Text("Apply", fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss) {
-                Text("Done")
-            }
-        }
-    )
-}
-
-@Composable
-fun AddShortcutDialog(
-    onDismiss: () -> Unit,
-    onAddShortcut: (String, String, String?) -> Unit
-) {
-    var newTitle by remember { mutableStateOf("") }
-    var newUrl by remember { mutableStateOf("") }
-    var newIconUrl by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Add Website Favorite",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(
-                    text = "Add a customizable quick-access shortcut tile to your Favorites start page.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                OutlinedTextField(
-                    value = newTitle,
-                    onValueChange = { newTitle = it },
-                    label = { Text("Title (e.g. YouTube)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = newUrl,
-                    onValueChange = { newUrl = it },
-                    label = { Text("URL (e.g. youtube.com)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = newIconUrl,
-                    onValueChange = { newIconUrl = it },
-                    label = { Text("Custom Icon URL (Optional)") },
-                    placeholder = { Text("https://example.com/logo.png") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(
-                    text = "If custom icon URL is blank, an elegant dynamic letter branding icon will be generated automatically.",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (newTitle.isNotBlank() && newUrl.isNotBlank()) {
-                        onAddShortcut(newTitle.trim(), newUrl.trim(), newIconUrl.trim().takeIf { it.isNotEmpty() })
-                        onDismiss()
-                    }
-                }
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EditShortcutDialog(
-    shortcut: HomepageShortcut,
-    onDismiss: () -> Unit,
-    onUpdateShortcut: (Long, String, String, String?) -> Unit
-) {
-    var title by remember { mutableStateOf(shortcut.title) }
-    var url by remember { mutableStateOf(shortcut.url) }
-    var iconUrl by remember { mutableStateOf(shortcut.iconUrl ?: "") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Edit Website Shortcut",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Website Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("Website URL Link") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = iconUrl,
-                    onValueChange = { iconUrl = it },
-                    label = { Text("Custom Icon URL (Optional)") },
-                    placeholder = { Text("https://example.com/logo.png") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                
-                Text(
-                    text = "If custom icon URL is blank, an elegant dynamic letter branding icon will be generated automatically.",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (title.isNotBlank() && url.isNotBlank()) {
-                        onUpdateShortcut(shortcut.id, title.trim(), url.trim(), iconUrl.trim().takeIf { it.isNotEmpty() })
-                        onDismiss()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
-            ) {
-                Text("Save Changes", color = Color.White)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color.Gray)
-            }
-        }
-    )
-}
-
-fun getVideoThumbnail(title: String): String {
-    return when {
-        title.contains("Apple Vision Pro", ignoreCase = true) -> "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?q=80&w=400"
-        title.contains("Android14", ignoreCase = true) || title.contains("Android 14", ignoreCase = true) -> "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?q=80&w=400"
-        title.contains("Hello Yellow", ignoreCase = true) || title.contains("iPhone 14", ignoreCase = true) -> "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?q=80&w=400"
-        title.contains("Apple Arcade", ignoreCase = true) -> "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?q=80&w=400"
-        else -> "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?q=80&w=400"
-    }
-}
-
-fun getVideoDuration(title: String): String {
-    return when {
-        title.contains("Apple Vision Pro", ignoreCase = true) -> "9:22"
-        title.contains("Android14", ignoreCase = true) || title.contains("Android 14", ignoreCase = true) -> "1:09"
-        title.contains("Hello Yellow", ignoreCase = true) || title.contains("iPhone 14", ignoreCase = true) -> "0:39"
-        title.contains("Apple Arcade", ignoreCase = true) -> "0:30"
-        else -> "2:15"
-    }
-}
-
-@Composable
-fun PlaylistVideoCard(
+private fun RealSavedVideoItem(
     video: CapturedMedia,
+    isDark: Boolean,
     effectiveTextColor: Color,
+    effectiveSubTextColor: Color,
     onPlayVideo: (CapturedMedia) -> Unit,
     onDeleteVideo: (Long) -> Unit
 ) {
-    val thumbnail = remember(video.pageTitle) { getVideoThumbnail(video.pageTitle) }
-    val duration = remember(video.pageTitle) { getVideoDuration(video.pageTitle) }
-    
-    var showMenu by remember { mutableStateOf(false) }
+    val cardBg = if (isDark) Color(0xFF121212) else Color.White
+    val cardBorder = if (isDark) Color(0xFF27272A) else Color(0xFFE4E4E7)
+    val playBg = if (isDark) Color(0xFF1E1E22) else Color(0xFFF4F4F5)
+    val accent = if (isDark) Color.White else Color.Black
 
-    Column(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onPlayVideo(video) }
+            .clickable { onPlayVideo(video) },
+        shape = RoundedCornerShape(12.dp),
+        color = cardBg,
+        border = BorderStroke(1.dp, cardBorder)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 10f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.DarkGray)
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Image(
-                painter = rememberAsyncImagePainter(model = thumbnail),
-                contentDescription = video.pageTitle,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            
-            // Dark gradient overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f))
-                        )
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = playBg
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint = accent,
+                        modifier = Modifier.size(24.dp)
                     )
-            )
-
-            // Play Icon in Center
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(36.dp)
-                    .background(Color.Black.copy(alpha = 0.6f), CircleShape),
-                contentAlignment = Alignment.Center
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = video.pageTitle.ifBlank { "Saved Web Video" },
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = effectiveTextColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = video.pageUrl.ifBlank { "Video Stream" },
+                    fontSize = 11.sp,
+                    color = effectiveSubTextColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(
+                onClick = { onDeleteVideo(video.id) },
+                modifier = Modifier.size(32.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "Delete",
+                    tint = effectiveSubTextColor.copy(alpha = 0.6f),
+                    modifier = Modifier.size(18.dp)
                 )
             }
+        }
+    }
+}
 
-            // Duration badge in bottom right
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
+// Brand color palette helper (Monochrome only: strictly Light and AMOLED)
+private fun getSiteBrandColor(title: String, url: String): Color {
+    return Color.Unspecified
+}
+
+@Composable
+fun CleanAddShortcutDialog(
+    onDismiss: () -> Unit,
+    onAdd: (String, String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.widthIn(max = 360.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = duration,
-                    color = Color.White,
-                    fontSize = 10.sp,
+                    text = "Add Shortcut",
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
-            }
-            
-            // Delete option
-            if (video.id > 0) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Site Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("Web Address (URL)") },
+                    placeholder = { Text("https://example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    IconButton(
-                        onClick = { showMenu = true },
-                        modifier = Modifier
-                            .size(28.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Options",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
                     }
-                    
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Delete from Playlist", color = Color.Red) },
-                            onClick = {
-                                showMenu = false
-                                onDeleteVideo(video.id)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (url.isNotBlank()) {
+                                val cleanUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) "https://$url" else url
+                                val cleanTitle = if (title.isBlank()) cleanUrl.removePrefix("https://").removePrefix("http://").takeWhile { it != '/' } else title
+                                onAdd(cleanTitle, cleanUrl)
                             }
-                        )
+                        },
+                        enabled = url.isNotBlank()
+                    ) {
+                        Text("Add")
                     }
                 }
             }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(6.dp))
+@Composable
+fun CleanEditShortcutDialog(
+    shortcut: HomepageShortcut,
+    onDismiss: () -> Unit,
+    onSave: (Long, String, String) -> Unit,
+    onDelete: (Long) -> Unit
+) {
+    var title by remember { mutableStateOf(shortcut.title) }
+    var url by remember { mutableStateOf(shortcut.url) }
 
-        Text(
-            text = video.pageTitle,
-            color = effectiveTextColor,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.widthIn(max = 360.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Edit Shortcut",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Site Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("Web Address (URL)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(
+                        onClick = { onDelete(shortcut.id) },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Delete")
+                    }
+                    Row {
+                        TextButton(onClick = onDismiss) {
+                            Text("Cancel")
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Button(
+                            onClick = {
+                                if (url.isNotBlank()) {
+                                    onSave(shortcut.id, title.ifBlank { shortcut.title }, url)
+                                }
+                            }
+                        ) {
+                            Text("Save")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CleanWallpaperDialog(
+    currentWallpaper: String?,
+    onDismiss: () -> Unit,
+    onSelectWallpaper: (String?) -> Unit
+) {
+    val presets = listOf(
+        Pair("Default (Minimal)", null),
+        Pair("Deep Cosmos", "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?q=80&w=1200"),
+        Pair("Dark Mountains", "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=1200"),
+        Pair("Ocean Sunset", "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1200"),
+        Pair("Abstract Flow", "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200")
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.widthIn(max = 380.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Start Page Background",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    presets.forEach { (name, url) ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (currentWallpaper == url) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectWallpaper(url) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (url == null) Icons.Default.Palette else Icons.Default.Image,
+                                    contentDescription = null,
+                                    tint = if (currentWallpaper == url) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (currentWallpaper == url) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (currentWallpaper == url) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Close")
+                    }
+                }
+            }
+        }
     }
 }
